@@ -1,0 +1,269 @@
+@import url('/fonts/vazirmatn/vazirmatn.css');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Persian RTL Software Development Website - Viraap-inspired Design System */
+
+@layer base {
+  :root {
+    /* Core Brand Colors - Viraap Inspired Teal Theme */
+    --background: 0 0% 100%;
+    --foreground: 184 25% 20%;
+
+    /* Teal Primary Palette - Inspired by Viraap */
+    --primary: 184 65% 35%;
+    --primary-dark: 184 75% 25%;
+    --primary-light: 184 45% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Warm Neutral Secondary */
+    --secondary: 25 10% 95%;
+    --secondary-dark: 25 15% 88%;
+    --secondary-foreground: 184 25% 25%;
+
+    /* Warm Orange Accents - Viraap Style */
+    --accent: 25 85% 65%;
+    --accent-light: 25 75% 75%;
+    --accent-foreground: 184 25% 20%;
+
+    /* Persian Gray Scale */
+    --muted: 210 15% 95%;
+    --muted-dark: 210 15% 90%;
+    --muted-foreground: 215 15% 55%;
+
+    /* Professional Cards */
+    --card: 0 0% 100%;
+    --card-border: 210 20% 92%;
+    --card-foreground: 215 25% 20%;
+
+    /* Interactive Elements */
+    --border: 210 20% 88%;
+    --input: 210 20% 96%;
+    --ring: 217 71% 53%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 25% 15%;
+
+    /* Status Colors */
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    /* Gradients - Viraap Inspired */
+    --gradient-primary: linear-gradient(135deg, hsl(184 65% 35%), hsl(184 75% 25%));
+    --gradient-hero: linear-gradient(135deg, hsl(184 65% 35%), hsl(184 75% 25%), hsl(184 85% 45%));
+    --gradient-subtle: linear-gradient(180deg, hsl(0 0% 100%), hsl(25 10% 98%));
+
+    /* Shadows - Teal Theme */
+    --shadow-soft: 0 4px 20px -2px hsl(184 65% 35% / 0.08);
+    --shadow-medium: 0 8px 32px -4px hsl(184 65% 35% / 0.12);
+    --shadow-strong: 0 16px 64px -8px hsl(184 65% 35% / 0.2);
+
+    /* Animations */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+
+    --radius: 0.75rem;
+    
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 180 100% 20%;
+    --sidebar-primary: 180 100% 20%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 25 95% 60%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 180 100% 20%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 25 85% 65%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+    
+    --sidebar-background: 180 100% 8%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 180 80% 30%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 25 95% 55%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 180 50% 20%;
+    --sidebar-ring: 180 80% 30%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  html {
+    direction: rtl;
+    font-family: 'Vazirmatn', 'Tahoma', sans-serif;
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    @apply bg-background text-foreground font-vazir;
+    font-feature-settings: 'kern' 1, 'liga' 1, 'ss01' 1;
+  }
+
+  /* Persian/Farsi typography optimization */
+  .font-persian {
+    font-family: 'Vazirmatn', 'Tahoma', sans-serif;
+    font-feature-settings: 'liga' on, 'kern' on;
+    text-rendering: optimizeLegibility;
+  }
+  
+  .ltr {
+    direction: ltr;
+  }
+}
+
+@layer components {
+  /* Persian Typography System */
+  .persian-heading {
+    @apply font-vazir font-semibold text-foreground;
+    line-height: 1.4;
+    letter-spacing: -0.02em;
+  }
+
+  .persian-body {
+    @apply font-vazir text-foreground;
+    line-height: 1.8;
+  }
+
+  /* Hero Button Variants */
+  .btn-hero-primary {
+    @apply bg-gradient-to-r from-primary to-primary-dark text-primary-foreground;
+    @apply px-8 py-4 rounded-lg font-medium;
+    @apply shadow-lg hover:shadow-xl;
+    @apply transition-all duration-300;
+    @apply hover:scale-105 active:scale-95;
+  }
+
+  .btn-hero-secondary {
+    @apply bg-transparent border-2 border-primary text-primary;
+    @apply px-8 py-4 rounded-lg font-medium;
+    @apply hover:bg-primary hover:text-primary-foreground;
+    @apply transition-all duration-300;
+  }
+
+  /* Service Cards */
+  .service-card {
+    @apply bg-card border border-border rounded-xl p-8;
+    @apply hover:shadow-lg transition-all duration-300;
+    @apply hover:-translate-y-2;
+  }
+
+  /* Portfolio Cards */
+  .portfolio-card {
+    @apply bg-card border border-border rounded-xl overflow-hidden;
+    @apply hover:shadow-xl transition-all duration-500;
+    @apply cursor-pointer;
+  }
+
+  /* Animations */
+  .fade-in-up {
+    @apply animate-in slide-in-from-bottom-4 duration-700;
+  }
+
+  .fade-in-scale {
+    @apply animate-in fade-in zoom-in-95 duration-500;
+  }
+
+  /* RTL-specific adjustments */
+  [dir="rtl"] .ml-auto {
+    margin-left: 0;
+    margin-right: auto;
+  }
+
+  [dir="rtl"] .mr-auto {
+    margin-right: 0;
+    margin-left: auto;
+  }
+
+  [dir="rtl"] .text-left {
+    text-align: right;
+  }
+
+  [dir="rtl"] .text-right {
+    text-align: left;
+  }
+}
+
+/* Keyframe animations */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-muted;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-accent/50 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-accent;
+}
