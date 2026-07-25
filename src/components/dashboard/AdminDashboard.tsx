@@ -56,6 +56,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Label } from "../ui/label";
+import { Switch } from "../ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "../ui/select";
 import { convertToPersianDigits, formatDecimalHoursToTime } from "@/lib/utils";
 import { useWindowSize } from "../windowWidth/useWindowSize";
@@ -95,6 +96,7 @@ interface ClientProfile {
   role: string;
   created_at: string;
   updated_at: string;
+  is_active: boolean;
   user?: {
     email: string;
     created_at: string;
@@ -208,6 +210,41 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
       setTotalUsers(stats.totalUsers || 0);
     } catch (error: any) {
       console.error("خطا در دریافت اطلاعات داشبورد:", error);
+    }
+  };
+
+  const updateClientStatusInState = (profileId: string, isActive: boolean) => {
+    setClients((currentClients) =>
+      currentClients.map((client) =>
+        client.id === profileId ? { ...client, is_active: isActive } : client
+      )
+    );
+    setSelectedClient((currentClient) =>
+      currentClient?.id === profileId
+        ? { ...currentClient, is_active: isActive }
+        : currentClient
+    );
+  };
+
+  const updateUserStatus = async (client: ClientProfile, isActive: boolean) => {
+    const previousStatus = client.is_active;
+    updateClientStatusInState(client.id, isActive);
+
+    try {
+      await apiClient.updateUserStatus(client.id, isActive);
+      toast({
+        title: "موفقیت",
+        description: isActive
+          ? "وضعیت کاربر به فعال تغییر کرد"
+          : "وضعیت کاربر به غیرفعال تغییر کرد",
+      });
+    } catch (error) {
+      updateClientStatusInState(client.id, previousStatus);
+      toast({
+        title: "خطا",
+        description: "خطا در بروزرسانی وضعیت کاربر",
+        variant: "destructive",
+      });
     }
   };
 
@@ -334,7 +371,12 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
     setClientsLoading(true);
     try {
       const data = await apiClient.getProfiles();
-      setClients(data || []);
+      setClients(
+        (data || []).map((client: ClientProfile) => ({
+          ...client,
+          is_active: Boolean(client.is_active),
+        }))
+      );
     } catch (error: any) {
       toast({
         title: "خطا",
@@ -437,8 +479,7 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
     total: clients.length,
     admins: clients.filter((c) => c.role === "admin").length,
     clients: clients.filter((c) => c.role === "client").length,
-    active: clients.filter((c) => c.submission_count && c.submission_count > 0)
-      .length,
+    active: clients.filter((c) => c.is_active).length,
     recent: clients.filter((c) => {
       if (!c.last_submission) return false;
       const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -767,7 +808,7 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
           <TabsContent value="users">
             <div className="space-y-6">
               {/* User Stats Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
                 <Card className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
@@ -807,6 +848,20 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
                       </p>
                     </div>
                     <UserCheck className="w-8 h-8 text-green-500" />
+                  </div>
+                </Card>
+
+                <Card className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="persian-body text-sm text-muted-foreground mb-1">
+                        کاربران فعال
+                      </p>
+                      <p className="persian-heading text-3xl font-bold text-emerald-500">
+                        {clientStats.active.toLocaleString("fa-IR")}
+                      </p>
+                    </div>
+                    <UserCheck className="w-8 h-8 text-emerald-500" />
                   </div>
                 </Card>
 
@@ -856,6 +911,9 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
                             </TableHead>
                             <TableHead className="persian-body">نقش</TableHead>
                             <TableHead className="persian-body">
+                              وضعیت
+                            </TableHead>
+                            <TableHead className="persian-body">
                               تعداد درخواست
                             </TableHead>
                             <TableHead className="persian-body">
@@ -884,6 +942,30 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
                                 </div>
                               </TableCell>
                               <TableCell>{getRoleBadge(client.role)}</TableCell>
+                              <TableCell className="persian-body">
+                                <div className="flex items-center gap-2">
+                                  <Switch
+                                    checked={client.is_active}
+                                    onCheckedChange={(checked) =>
+                                      updateUserStatus(client, checked)
+                                    }
+                                    aria-label={
+                                      client.is_active
+                                        ? "غیرفعال کردن کاربر"
+                                        : "فعال کردن کاربر"
+                                    }
+                                  />
+                                  <span
+                                    className={
+                                      client.is_active
+                                        ? "text-green-600"
+                                        : "text-orange-600"
+                                    }
+                                  >
+                                    {client.is_active ? "فعال" : "غیرفعال"}
+                                  </span>
+                                </div>
+                              </TableCell>
                               <TableCell className="persian-body">
                                 <div className="flex items-center gap-2">
                                   <MessageSquare className="w-4 h-4 text-muted-foreground" />
@@ -1158,6 +1240,32 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
                 </div>
 
                 <div className="space-y-2">
+                  <Label className="persian-body text-sm">وضعیت کاربر</Label>
+                  <div className="flex items-center gap-3 rounded-md border p-3">
+                    <Switch
+                      checked={selectedClient.is_active}
+                      onCheckedChange={(checked) =>
+                        updateUserStatus(selectedClient, checked)
+                      }
+                      aria-label={
+                        selectedClient.is_active
+                          ? "غیرفعال کردن کاربر"
+                          : "فعال کردن کاربر"
+                      }
+                    />
+                    <span
+                      className={`persian-body font-medium ${
+                        selectedClient.is_active
+                          ? "text-green-600"
+                          : "text-orange-600"
+                      }`}
+                    >
+                      {selectedClient.is_active ? "فعال" : "غیرفعال"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="role-select" className="persian-body text-sm">
                     تغییر نقش کاربر
                   </Label>
@@ -1222,16 +1330,10 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
                     </span>
                     <span
                       className={`persian-body font-medium ${
-                        selectedClient.submission_count &&
-                        selectedClient.submission_count > 0
-                          ? "text-green-600"
-                          : "text-orange-600"
+                        selectedClient.is_active ? "text-green-600" : "text-orange-600"
                       }`}
                     >
-                      {selectedClient.submission_count &&
-                      selectedClient.submission_count > 0
-                        ? "فعال"
-                        : "غیرفعال"}
+                      {selectedClient.is_active ? "فعال" : "غیرفعال"}
                     </span>
                   </div>
                 </div>

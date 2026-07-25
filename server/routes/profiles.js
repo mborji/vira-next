@@ -4,6 +4,7 @@ import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 let workerTypeColumnInitPromise;
+let activeStatusColumnInitPromise;
 
 const ensureWorkerTypeColumn = async () => {
   if (!workerTypeColumnInitPromise) {
@@ -27,10 +28,31 @@ const ensureWorkerTypeColumn = async () => {
   return workerTypeColumnInitPromise;
 };
 
+const ensureActiveStatusColumn = async () => {
+  if (!activeStatusColumnInitPromise) {
+    activeStatusColumnInitPromise = (async () => {
+      const pool = await getConnection();
+      await pool.request().query(`
+        IF COL_LENGTH('profiles', 'is_active') IS NULL
+        BEGIN
+          ALTER TABLE profiles
+          ADD is_active BIT NOT NULL CONSTRAINT DF_profiles_is_active DEFAULT 1;
+        END
+      `);
+    })().catch((error) => {
+      activeStatusColumnInitPromise = null;
+      throw error;
+    });
+  }
+
+  return activeStatusColumnInitPromise;
+};
+
 // Get all profiles (admin only)
 router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
     await ensureWorkerTypeColumn();
+    await ensureActiveStatusColumn();
     const pool = await getConnection();
     const result = await pool.request()
       .query(`
@@ -73,6 +95,35 @@ router.put('/:id/worker-type', authenticateToken, requireAdmin, async (req, res)
     res.json({ success: true });
   } catch (error) {
     console.error('Error updating worker type:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update user status (admin only)
+router.put('/:id/status', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    await ensureActiveStatusColumn();
+    const { id } = req.params;
+    const { is_active } = req.body;
+
+    if (typeof is_active !== 'boolean') {
+      return res.status(400).json({ error: 'Invalid is_active' });
+    }
+
+    const pool = await getConnection();
+    await pool.request()
+      .input('id', sql.UniqueIdentifier, id)
+      .input('isActive', sql.Bit, is_active)
+      .input('updatedAt', sql.DateTime2, new Date())
+      .query(`
+        UPDATE profiles
+        SET is_active = @isActive, updated_at = @updatedAt
+        WHERE id = @id
+      `);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating user status:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
