@@ -193,6 +193,13 @@ class ApiClient {
     });
   }
 
+  async updateUserStatus(profileId: string, is_active: boolean) {
+    return this.request(`/profiles/${profileId}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ is_active }),
+    });
+  }
+
   async updateWorkerType(
     profileId: string,
     worker_type: "full_time" | "part_time"

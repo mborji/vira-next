@@ -13,6 +13,7 @@ CREATE TABLE profiles (
     full_name NVARCHAR(255),
     role NVARCHAR(50) NOT NULL DEFAULT 'client' CHECK (role IN ('admin', 'super_admin', 'client', 'worker')),
     worker_type NVARCHAR(20) NOT NULL DEFAULT 'full_time' CHECK (worker_type IN ('full_time', 'part_time')),
+    is_active BIT NOT NULL DEFAULT 1,
     created_at DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
     updated_at DATETIME2 NOT NULL DEFAULT GETUTCDATE()
 );
