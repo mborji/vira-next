@@ -19,6 +19,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Coffee,
+  Search,
+  Activity,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,6 +41,8 @@ import {
   getDaysInJalaliMonth,
   getCurrentJalaliDate,
   getJalaliMonthName,
+  gregorianToJalali,
+  formatJalaliDate,
 } from "@/utils/jalali";
 import { ChangePassword } from "@/components/auth/ChangePassword";
 import {
@@ -57,14 +61,37 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Label } from "../ui/label";
+import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "../ui/select";
-import { convertToPersianDigits, formatDecimalHoursToTime } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
+import {
+  cn,
+  convertToPersianDigits,
+  formatDecimalHoursToTime,
+} from "@/lib/utils";
 import { useWindowSize } from "../windowWidth/useWindowSize";
 
 const MOBILE_WIDTH_THRESHOLD = 600;
 const ACCEPTED_DAY_OFF_HOURS = 9;
 const HOLIDAY_HOURS = 9;
+
+/** First-letter initials from a full name, for avatars. */
+const getInitials = (name?: string | null): string => {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "؟";
+  if (parts.length === 1) return parts[0].charAt(0);
+  return `${parts[0].charAt(0)} ${parts[1].charAt(0)}`;
+};
+
+/** Format a Gregorian date string as a Persian (Jalali) date. */
+const formatActivityDate = (dateStr: string): string =>
+  convertToPersianDigits(formatJalaliDate(gregorianToJalali(new Date(dateStr))));
 
 interface Profile {
   id: string;
@@ -152,6 +179,13 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [clientModalOpen, setClientModalOpen] = useState(false);
   const [newRole, setNewRole] = useState<string>("");
+
+  // Users list: attendance-based last activity + client-side filters
+  const [lastActivityMap, setLastActivityMap] = useState<
+    Record<string, string>
+  >({});
+  const [userSearch, setUserSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
 
   // Calendar state
   const [selectedMonth, setSelectedMonth] = useState(getCurrentJalaliDate());
@@ -389,6 +423,25 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
     }
   };
 
+  // Build a map of user_id -> most recent attendance/time-log date.
+  // Reuses the existing time-logs endpoint (no filters => all workers).
+  const fetchLastActivity = async () => {
+    try {
+      const logs = await apiClient.getTimeLogs();
+      const map: Record<string, string> = {};
+      (logs || []).forEach((log: { worker_id?: string; date?: string }) => {
+        if (!log.worker_id || !log.date) return;
+        const current = map[log.worker_id];
+        if (!current || new Date(log.date) > new Date(current)) {
+          map[log.worker_id] = log.date;
+        }
+      });
+      setLastActivityMap(map);
+    } catch (error) {
+      // Non-blocking: the column falls back to the "no activity" placeholder.
+    }
+  };
+
   const navigateMonth = (direction: "prev" | "next") => {
     const newMonth = { ...selectedMonth };
     if (direction === "next") {
@@ -487,6 +540,18 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
       return new Date(c.last_submission) > lastWeek;
     }).length,
   };
+
+  // Client-side view filters for the users list (no API/logic changes).
+  const normalizedUserQuery = userSearch.trim().toLowerCase();
+  const filteredClients = clients.filter((client) => {
+    const matchesRole = roleFilter === "all" || client.role === roleFilter;
+    const matchesSearch =
+      !normalizedUserQuery ||
+      (client.full_name || "").toLowerCase().includes(normalizedUserQuery) ||
+      (client.email || "").toLowerCase().includes(normalizedUserQuery);
+    return matchesRole && matchesSearch;
+  });
+  const isUserFilterActive = normalizedUserQuery !== "" || roleFilter !== "all";
 
   const openSubmissionModal = (submission: ContactSubmission) => {
     setSelectedSubmission(submission);
@@ -619,7 +684,10 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
             <TabsTrigger
               value="users"
               className="persian-body"
-              onClick={fetchClients}
+              onClick={() => {
+                fetchClients();
+                fetchLastActivity();
+              }}
             >
               کاربران
             </TabsTrigger>
@@ -795,37 +863,97 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
 
               {/* Users Table */}
               <Card>
-                <div className="p-6">
-                  <h2 className="persian-heading text-xl font-semibold text-foreground mb-6">
-                    لیست کاربران سیستم
-                  </h2>
+                <div className="p-6 space-y-5">
+                  {/* Header: title + search + role filter */}
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h2 className="persian-heading text-xl font-semibold text-foreground">
+                        لیست کاربران سیستم
+                      </h2>
+                      <p className="persian-body mt-1 text-sm text-muted-foreground">
+                        {clientStats.total.toLocaleString("fa-IR")} کاربر ثبت‌شده
+                        {isUserFilterActive
+                          ? ` · ${filteredClients.length.toLocaleString(
+                              "fa-IR"
+                            )} نتیجه`
+                          : ""}
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <div className="relative w-full sm:w-64">
+                        <Search className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          value={userSearch}
+                          onChange={(e) => setUserSearch(e.target.value)}
+                          placeholder="جستجوی نام یا ایمیل..."
+                          className="persian-body pe-9"
+                          aria-label="جستجوی کاربر"
+                        />
+                      </div>
+                      <Select value={roleFilter} onValueChange={setRoleFilter}>
+                        <SelectTrigger className="persian-body w-full sm:w-40">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">همه نقش‌ها</SelectItem>
+                          <SelectItem value="admin">مدیر</SelectItem>
+                          <SelectItem value="worker">کارمند</SelectItem>
+                          <SelectItem value="client">کاربر</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
 
                   {clientsLoading ? (
-                    <div className="text-center py-12">
-                      <p className="persian-body text-muted-foreground">
+                    <div className="flex flex-col items-center justify-center py-16">
+                      <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted border-t-primary" />
+                      <p className="persian-body mt-4 text-muted-foreground">
                         در حال بارگذاری...
                       </p>
                     </div>
                   ) : clients.length === 0 ? (
-                    <div className="text-center py-12">
-                      <UserX className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="persian-body text-muted-foreground">
-                        هنوز کاربری ثبت نام نکرده است
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
+                        <UserX className="h-7 w-7 text-muted-foreground" />
+                      </div>
+                      <p className="persian-heading mt-4 font-medium text-foreground">
+                        هنوز کاربری ثبت‌نام نکرده است
+                      </p>
+                      <p className="persian-body mt-1 text-sm text-muted-foreground">
+                        کاربران جدید پس از ثبت‌نام اینجا نمایش داده می‌شوند
                       </p>
                     </div>
+                  ) : filteredClients.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
+                        <Search className="h-7 w-7 text-muted-foreground" />
+                      </div>
+                      <p className="persian-heading mt-4 font-medium text-foreground">
+                        نتیجه‌ای یافت نشد
+                      </p>
+                      <p className="persian-body mt-1 text-sm text-muted-foreground">
+                        عبارت جستجو یا فیلتر نقش را تغییر دهید
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="persian-body mt-4"
+                        onClick={() => {
+                          setUserSearch("");
+                          setRoleFilter("all");
+                        }}
+                      >
+                        پاک کردن فیلترها
+                      </Button>
+                    </div>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto rounded-xl border border-border">
                       <Table>
                         <TableHeader>
-                          <TableRow>
-                            <TableHead className="persian-body">نام</TableHead>
-                            <TableHead className="persian-body">
-                              ایمیل
-                            </TableHead>
+                          <TableRow className="bg-muted/50 hover:bg-muted/50">
+                            <TableHead className="persian-body">کاربر</TableHead>
                             <TableHead className="persian-body">نقش</TableHead>
-                            <TableHead className="persian-body">
-                              وضعیت
-                            </TableHead>
+                            <TableHead className="persian-body">وضعیت</TableHead>
                             <TableHead className="persian-body">
                               تعداد درخواست
                             </TableHead>
@@ -835,82 +963,109 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
                             <TableHead className="persian-body">
                               تاریخ عضویت
                             </TableHead>
-                            <TableHead className="persian-body">
+                            <TableHead className="persian-body text-left">
                               عملیات
                             </TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {clients.map((client) => (
-                            <TableRow key={client.id}>
-                              <TableCell className="persian-body font-medium">
-                                {client.full_name || "بدون نام"}
-                              </TableCell>
-                              <TableCell className="persian-body">
-                                <div className="flex items-center gap-2">
-                                  <Mail className="w-4 h-4 text-muted-foreground" />
-                                  <span className="ltr-content text-sm">
-                                    {client.email || "بدون ایمیل"}
-                                  </span>
-                                </div>
-                              </TableCell>
-                              <TableCell>{getRoleBadge(client.role)}</TableCell>
-                              <TableCell className="persian-body">
-                                <div className="flex items-center gap-2">
-                                  <Switch
-                                    checked={client.is_active}
-                                    onCheckedChange={(checked) =>
-                                      updateUserStatus(client, checked)
-                                    }
-                                    aria-label={
-                                      client.is_active
-                                        ? "غیرفعال کردن کاربر"
-                                        : "فعال کردن کاربر"
-                                    }
-                                  />
-                                  <span
-                                    className={
-                                      client.is_active
-                                        ? "text-green-600"
-                                        : "text-orange-600"
-                                    }
+                          {filteredClients.map((client) => {
+                            const lastActivity = lastActivityMap[client.user_id];
+                            return (
+                              <TableRow
+                                key={client.id}
+                                className="transition-colors hover:bg-muted/40"
+                              >
+                                <TableCell>
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                                      {getInitials(client.full_name)}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="persian-body truncate font-semibold text-foreground">
+                                        {client.full_name || "بدون نام"}
+                                      </p>
+                                      <p
+                                        dir="ltr"
+                                        className="truncate text-right text-xs text-muted-foreground"
+                                      >
+                                        {client.email || "بدون ایمیل"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>{getRoleBadge(client.role)}</TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    <Switch
+                                      checked={client.is_active}
+                                      onCheckedChange={(checked) =>
+                                        updateUserStatus(client, checked)
+                                      }
+                                      aria-label={
+                                        client.is_active
+                                          ? "غیرفعال کردن کاربر"
+                                          : "فعال کردن کاربر"
+                                      }
+                                    />
+                                    <span
+                                      className={cn(
+                                        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
+                                        client.is_active
+                                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                          : "bg-orange-500/10 text-orange-600 dark:text-orange-400"
+                                      )}
+                                    >
+                                      <span
+                                        className={cn(
+                                          "h-1.5 w-1.5 rounded-full",
+                                          client.is_active
+                                            ? "bg-emerald-500"
+                                            : "bg-orange-500"
+                                        )}
+                                      />
+                                      {client.is_active ? "فعال" : "غیرفعال"}
+                                    </span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="persian-body">
+                                  <div className="flex items-center gap-2">
+                                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                                    {client.submission_count.toLocaleString(
+                                      "fa-IR"
+                                    ) || "۰"}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="persian-body">
+                                  {lastActivity ? (
+                                    <span className="inline-flex items-center gap-1.5 text-sm text-foreground">
+                                      <Activity className="h-3.5 w-3.5 text-emerald-500" />
+                                      {formatActivityDate(lastActivity)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-sm text-muted-foreground">
+                                      بدون فعالیت
+                                    </span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="persian-body text-sm text-muted-foreground">
+                                  {new Date(
+                                    client.created_at
+                                  ).toLocaleDateString("fa-IR")}
+                                </TableCell>
+                                <TableCell className="text-left">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => openClientModal(client)}
                                   >
-                                    {client.is_active ? "فعال" : "غیرفعال"}
-                                  </span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="persian-body">
-                                <div className="flex items-center gap-2">
-                                  <MessageSquare className="w-4 h-4 text-muted-foreground" />
-                                  {client.submission_count.toLocaleString(
-                                    "fa-IR"
-                                  ) || "۰"}
-                                </div>
-                              </TableCell>
-                              <TableCell className="persian-body text-sm text-muted-foreground">
-                                {client.last_submission
-                                  ? new Date(
-                                      client.last_submission
-                                    ).toLocaleDateString("fa-IR")
-                                  : "هرگز"}
-                              </TableCell>
-                              <TableCell className="persian-body text-sm text-muted-foreground">
-                                {new Date(client.created_at).toLocaleDateString(
-                                  "fa-IR"
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => openClientModal(client)}
-                                >
-                                  <Eye className="w-4 h-4 ml-1" />
-                                  مشاهده
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          ))}
+                                    <Eye className="w-4 h-4 ml-1" />
+                                    مشاهده
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
                         </TableBody>
                       </Table>
                     </div>
