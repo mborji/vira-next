@@ -20,7 +20,7 @@ import {
   ChevronRight,
   Coffee,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -28,6 +28,7 @@ import { useAuthStore } from "@/hooks/useAuthStore";
 import { apiClient } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import ContactRequestModal from "./ContactRequestModal";
+import { StatCard } from "./StatCard";
 import { BlogManagement } from "./BlogManagement";
 import { WorkerManagement } from "./WorkerManagement";
 import ServiceManagement from "./ServiceManagement";
@@ -543,88 +544,70 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
     <>
       <div className="p-6 space-y-8">
         {/* Header */}
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="persian-heading text-3xl font-bold text-foreground mb-2">
-              پنل مدیریت
-            </h1>
-            <p className="persian-body text-muted-foreground">
-              خوش آمدید {profile.full_name || "ادمین"}
-            </p>
+        <div className="relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-primary/10 via-card to-card p-7">
+          <div
+            className="pointer-events-none absolute -top-16 -start-16 h-52 w-52 rounded-full bg-primary/10 blur-3xl"
+            aria-hidden="true"
+          />
+          <div className="relative flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="persian-body mb-2 text-xs font-semibold uppercase tracking-widest text-primary">
+                داشبورد مدیریتی
+              </p>
+              <h1 className="persian-heading text-3xl font-bold text-foreground">
+                خوش آمدید، {profile.full_name || "ادمین"} 👋
+              </h1>
+              <p className="persian-body mt-2 text-muted-foreground">
+                خلاصه‌ای از وضعیت سیستم، کاربران و درخواست‌ها را اینجا می‌بینید.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 rounded-full border border-border bg-card/70 px-4 py-2 text-sm text-muted-foreground backdrop-blur">
+              <Calendar className="h-4 w-4 text-primary" />
+              <span className="persian-body">
+                {getJalaliMonthName(currentDate.jm)}{" "}
+                {currentDate.jy.toLocaleString("fa-IR", { useGrouping: false })}
+              </span>
+            </div>
           </div>
         </div>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-          <Card className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="persian-body text-sm text-muted-foreground mb-1">
-                  کل درخواست‌ها
-                </p>
-                <p className="persian-heading text-3xl font-bold text-foreground">
-                  {stats.total.toLocaleString("fa-IR")}
-                </p>
-              </div>
-              <MessageSquare className="w-8 h-8 text-primary" />
-            </div>
-          </Card>
-
-          <Card className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="persian-body text-sm text-muted-foreground mb-1">
-                  تعداد کاربران
-                </p>
-                <p className="persian-heading text-3xl font-bold text-orange-500">
-                  {totalUsers.toLocaleString("fa-IR")}
-                </p>
-              </div>
-              <Users className="w-8 h-8 text-orange-500" />
-            </div>
-          </Card>
-
-          <Card className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="persian-body text-sm text-muted-foreground mb-1">
-                  مقالات منتشر شده
-                </p>
-                <p className="persian-heading text-3xl font-bold text-blue-500">
-                  {publishedBlogsCount.toLocaleString("fa-IR")}
-                </p>
-              </div>
-              <FileText className="w-8 h-8 text-blue-500" />
-            </div>
-          </Card>
-
-          <Card className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="persian-body text-sm text-muted-foreground mb-1">
-                  خدمات ارائه شده
-                </p>
-                <p className="persian-heading text-3xl font-bold text-red-400">
-                  {servicesCount.toLocaleString("fa-IR")}
-                </p>
-              </div>
-              <Briefcase className="w-8 h-8 text-red-400" />
-            </div>
-          </Card>
-
-          <Card className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="persian-body text-sm text-muted-foreground mb-1">
-                  پروژه‌ها
-                </p>
-                <p className="persian-heading text-3xl font-bold text-indigo-400">
-                  {projectsCount.toLocaleString("fa-IR")}
-                </p>
-              </div>
-              <ClipboardCheck className="w-8 h-8 text-indigo-400" />
-            </div>
-          </Card>
+          <StatCard
+            title="کل درخواست‌ها"
+            value={stats.total.toLocaleString("fa-IR")}
+            icon={MessageSquare}
+            accent="teal"
+            hint="درخواست‌های تماس"
+          />
+          <StatCard
+            title="تعداد کاربران"
+            value={totalUsers.toLocaleString("fa-IR")}
+            icon={Users}
+            accent="orange"
+            hint="کاربران ثبت‌شده"
+          />
+          <StatCard
+            title="مقالات منتشر شده"
+            value={publishedBlogsCount.toLocaleString("fa-IR")}
+            icon={FileText}
+            accent="sky"
+            hint="محتوای فعال بلاگ"
+          />
+          <StatCard
+            title="خدمات ارائه شده"
+            value={servicesCount.toLocaleString("fa-IR")}
+            icon={Briefcase}
+            accent="rose"
+            hint="سرویس‌های تعریف‌شده"
+          />
+          <StatCard
+            title="پروژه‌ها"
+            value={projectsCount.toLocaleString("fa-IR")}
+            icon={ClipboardCheck}
+            accent="indigo"
+            hint="پروژه‌های نمونه‌کار"
+          />
         </div>
 
         {/* Main Content */}
@@ -664,61 +647,30 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
             <div className="space-y-6">
               {/* Submission Stats Cards */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <Card className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="persian-body text-sm text-muted-foreground mb-1">
-                        کل درخواست‌ها
-                      </p>
-                      <p className="persian-heading text-3xl font-bold text-foreground">
-                        {stats.total.toLocaleString("fa-IR")}
-                      </p>
-                    </div>
-                    <MessageSquare className="w-8 h-8 text-primary" />
-                  </div>
-                </Card>
-
-                <Card className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="persian-body text-sm text-muted-foreground mb-1">
-                        در انتظار
-                      </p>
-                      <p className="persian-heading text-3xl font-bold text-orange-500">
-                        {stats.pending.toLocaleString("fa-IR")}
-                      </p>
-                    </div>
-                    <Clock className="w-8 h-8 text-orange-500" />
-                  </div>
-                </Card>
-
-                <Card className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="persian-body text-sm text-muted-foreground mb-1">
-                        در حال بررسی
-                      </p>
-                      <p className="persian-heading text-3xl font-bold text-blue-500">
-                        {stats.inProgress.toLocaleString("fa-IR")}
-                      </p>
-                    </div>
-                    <AlertCircle className="w-8 h-8 text-blue-500" />
-                  </div>
-                </Card>
-
-                <Card className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="persian-body text-sm text-muted-foreground mb-1">
-                        حل شده
-                      </p>
-                      <p className="persian-heading text-3xl font-bold text-green-500">
-                        {stats.resolved.toLocaleString("fa-IR")}
-                      </p>
-                    </div>
-                    <CheckCircle className="w-8 h-8 text-green-500" />
-                  </div>
-                </Card>
+                <StatCard
+                  title="کل درخواست‌ها"
+                  value={stats.total.toLocaleString("fa-IR")}
+                  icon={MessageSquare}
+                  accent="teal"
+                />
+                <StatCard
+                  title="در انتظار"
+                  value={stats.pending.toLocaleString("fa-IR")}
+                  icon={Clock}
+                  accent="amber"
+                />
+                <StatCard
+                  title="در حال بررسی"
+                  value={stats.inProgress.toLocaleString("fa-IR")}
+                  icon={AlertCircle}
+                  accent="sky"
+                />
+                <StatCard
+                  title="حل شده"
+                  value={stats.resolved.toLocaleString("fa-IR")}
+                  icon={CheckCircle}
+                  accent="emerald"
+                />
               </div>
 
               <Card>
@@ -809,75 +761,36 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
             <div className="space-y-6">
               {/* User Stats Cards */}
               <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                <Card className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="persian-body text-sm text-muted-foreground mb-1">
-                        کل کاربران
-                      </p>
-                      <p className="persian-heading text-3xl font-bold text-foreground">
-                        {clientStats.total.toLocaleString("fa-IR")}
-                      </p>
-                    </div>
-                    <Users className="w-8 h-8 text-primary" />
-                  </div>
-                </Card>
-
-                <Card className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="persian-body text-sm text-muted-foreground mb-1">
-                        مدیران
-                      </p>
-                      <p className="persian-heading text-3xl font-bold text-red-500">
-                        {clientStats.admins.toLocaleString("fa-IR")}
-                      </p>
-                    </div>
-                    <Shield className="w-8 h-8 text-red-500" />
-                  </div>
-                </Card>
-
-                <Card className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="persian-body text-sm text-muted-foreground mb-1">
-                        کاربران عادی
-                      </p>
-                      <p className="persian-heading text-3xl font-bold text-green-500">
-                        {clientStats.clients.toLocaleString("fa-IR")}
-                      </p>
-                    </div>
-                    <UserCheck className="w-8 h-8 text-green-500" />
-                  </div>
-                </Card>
-
-                <Card className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="persian-body text-sm text-muted-foreground mb-1">
-                        کاربران فعال
-                      </p>
-                      <p className="persian-heading text-3xl font-bold text-emerald-500">
-                        {clientStats.active.toLocaleString("fa-IR")}
-                      </p>
-                    </div>
-                    <UserCheck className="w-8 h-8 text-emerald-500" />
-                  </div>
-                </Card>
-
-                <Card className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="persian-body text-sm text-muted-foreground mb-1">
-                        فعالیت هفته اخیر
-                      </p>
-                      <p className="persian-heading text-3xl font-bold text-blue-500">
-                        {clientStats.recent.toLocaleString("fa-IR")}
-                      </p>
-                    </div>
-                    <Calendar className="w-8 h-8 text-blue-500" />
-                  </div>
-                </Card>
+                <StatCard
+                  title="کل کاربران"
+                  value={clientStats.total.toLocaleString("fa-IR")}
+                  icon={Users}
+                  accent="teal"
+                />
+                <StatCard
+                  title="مدیران"
+                  value={clientStats.admins.toLocaleString("fa-IR")}
+                  icon={Shield}
+                  accent="rose"
+                />
+                <StatCard
+                  title="کاربران عادی"
+                  value={clientStats.clients.toLocaleString("fa-IR")}
+                  icon={UserCheck}
+                  accent="violet"
+                />
+                <StatCard
+                  title="کاربران فعال"
+                  value={clientStats.active.toLocaleString("fa-IR")}
+                  icon={UserCheck}
+                  accent="emerald"
+                />
+                <StatCard
+                  title="فعالیت هفته اخیر"
+                  value={clientStats.recent.toLocaleString("fa-IR")}
+                  icon={Calendar}
+                  accent="sky"
+                />
               </div>
 
               {/* Users Table */}
@@ -1013,76 +926,40 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
 
           <TabsContent value="calendar">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">
-                    ساعات امروز
-                  </CardTitle>
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {convertToPersianDigits(
-                      formatDecimalHoursToTime(hoursToday)
-                    )}{" "}
-                    ساعت
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {hoursToday > 0
-                      ? "ثبت شده برای امروز"
-                      : "برای امروز ثبت نشده"}
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">
-                    مجموع این ماه
-                  </CardTitle>
-                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {convertToPersianDigits(
-                      formatDecimalHoursToTime(totalHours)
-                    )}{" "}
-                    ساعت
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    ساعات کاری ماه جاری
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">
-                    روزهای کاری
-                  </CardTitle>
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {daysWorked.toLocaleString("fa-IR")} روز
-                  </div>
-                  <p className="text-xs text-muted-foreground">از ابتدای ماه</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">
-                    درخواست مرخصی
-                  </CardTitle>
-                  <Coffee className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {pendingRequests.toLocaleString("fa-IR")}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    در انتظار بررسی
-                  </p>
-                </CardContent>
-              </Card>
+              <StatCard
+                title="ساعات امروز"
+                value={`${convertToPersianDigits(
+                  formatDecimalHoursToTime(hoursToday)
+                )} ساعت`}
+                icon={Clock}
+                accent="teal"
+                hint={
+                  hoursToday > 0 ? "ثبت شده برای امروز" : "برای امروز ثبت نشده"
+                }
+              />
+              <StatCard
+                title="مجموع این ماه"
+                value={`${convertToPersianDigits(
+                  formatDecimalHoursToTime(totalHours)
+                )} ساعت`}
+                icon={TrendingUp}
+                accent="violet"
+                hint="ساعات کاری ماه جاری"
+              />
+              <StatCard
+                title="روزهای کاری"
+                value={`${daysWorked.toLocaleString("fa-IR")} روز`}
+                icon={Calendar}
+                accent="sky"
+                hint="از ابتدای ماه"
+              />
+              <StatCard
+                title="درخواست مرخصی"
+                value={pendingRequests.toLocaleString("fa-IR")}
+                icon={Coffee}
+                accent="amber"
+                hint="در انتظار بررسی"
+              />
             </div>
 
             <div className="flex items-center justify-end my-2">
