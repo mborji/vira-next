@@ -83,6 +83,13 @@ interface Worker {
   worker_type?: "full_time" | "part_time";
 }
 
+const getInitials = (name: string): string => {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "؟";
+  if (parts.length === 1) return parts[0].charAt(0);
+  return `${parts[0].charAt(0)} ${parts[1].charAt(0)}`;
+};
+
 interface TimeLog {
   id: string;
   worker_id: string;
@@ -777,30 +784,91 @@ export const WorkerManagement: React.FC = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>نام کارمند</TableHead>
-                    <TableHead>نوع همکاری</TableHead>
-                    <TableHead>مجموع ساعات</TableHead>
-                    <TableHead>روزهای کاری</TableHead>
-                    <TableHead>مرخصی‌های تایید شده</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+              {workerSummaries.length === 0 ? (
+                <div className="py-16 text-center text-sm text-muted-foreground">
+                  کارمندی برای نمایش وجود ندارد
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   {workerSummaries.map((summary) => {
                     const worker = workers.find(
                       (item) => item.user_id === summary.worker_id
                     );
+                    const workerType = worker?.worker_type || "full_time";
+
                     return (
-                      <TableRow key={summary.worker_id}>
-                        <TableCell className="font-medium">
-                          {summary.worker_name}
-                        </TableCell>
-                        <TableCell>
+                      <div
+                        key={summary.worker_id}
+                        className="flex flex-col overflow-hidden rounded-xl border border-border bg-gradient-to-br from-card to-primary/[0.04] p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-dark text-sm font-bold text-primary-foreground shadow-sm ring-2 ring-primary/15">
+                            {getInitials(summary.worker_name)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-semibold text-foreground">
+                              {summary.worker_name}
+                            </p>
+                            {worker?.email && (
+                              <p
+                                dir="ltr"
+                                className="truncate text-right text-xs text-muted-foreground"
+                              >
+                                {worker.email}
+                              </p>
+                            )}
+                          </div>
+                          <Badge
+                            className={cn(
+                              "shrink-0 border-transparent font-medium",
+                              workerType === "full_time"
+                                ? "bg-primary/10 text-primary hover:bg-primary/10"
+                                : "bg-accent/20 text-accent-foreground hover:bg-accent/20"
+                            )}
+                          >
+                            {workerType === "full_time" ? "تمام‌وقت" : "پاره‌وقت"}
+                          </Badge>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-3 gap-2">
+                          <div className="rounded-lg border border-teal-200/70 bg-gradient-to-br from-teal-50 to-teal-100/40 p-3 text-center dark:border-teal-800/50 dark:from-teal-950/40 dark:to-teal-900/20">
+                            <Clock className="mx-auto mb-1 h-4 w-4 text-teal-600 dark:text-teal-400" />
+                            <div className="text-sm font-bold text-teal-900 dark:text-teal-100">
+                              {convertToPersianDigits(
+                                formatDecimalHoursToTime(summary.total_hours)
+                              )}
+                            </div>
+                            <div className="mt-0.5 text-[11px] text-teal-700/80 dark:text-teal-300/80">
+                              مجموع ساعات
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-sky-200/70 bg-gradient-to-br from-sky-50 to-sky-100/40 p-3 text-center dark:border-sky-800/50 dark:from-sky-950/40 dark:to-sky-900/20">
+                            <Calendar className="mx-auto mb-1 h-4 w-4 text-sky-600 dark:text-sky-400" />
+                            <div className="text-sm font-bold text-sky-900 dark:text-sky-100">
+                              {summary.days_worked.toLocaleString("fa-IR")}
+                            </div>
+                            <div className="mt-0.5 text-[11px] text-sky-700/80 dark:text-sky-300/80">
+                              روزهای کاری
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-amber-200/70 bg-gradient-to-br from-amber-50 to-amber-100/40 p-3 text-center dark:border-amber-800/50 dark:from-amber-950/40 dark:to-amber-900/20">
+                            <Coffee className="mx-auto mb-1 h-4 w-4 text-amber-600 dark:text-amber-400" />
+                            <div className="text-sm font-bold text-amber-900 dark:text-amber-100">
+                              {summary.approved_days_off.toLocaleString("fa-IR")}
+                            </div>
+                            <div className="mt-0.5 text-[11px] text-amber-700/80 dark:text-amber-300/80">
+                              مرخصی تایید شده
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 border-t border-border/60 pt-3">
+                          <Label className="mb-1.5 block text-xs text-muted-foreground">
+                            نوع همکاری
+                          </Label>
                           {worker ? (
                             <Select
-                              value={worker.worker_type || "full_time"}
+                              value={workerType}
                               onValueChange={(value) =>
                                 changeWorkerType(
                                   worker,
@@ -808,7 +876,7 @@ export const WorkerManagement: React.FC = () => {
                                 )
                               }
                             >
-                              <SelectTrigger className="w-36">
+                              <SelectTrigger className="w-full">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -817,26 +885,14 @@ export const WorkerManagement: React.FC = () => {
                               </SelectContent>
                             </Select>
                           ) : (
-                            "-"
+                            <span className="text-sm text-muted-foreground">-</span>
                           )}
-                        </TableCell>
-                        <TableCell>
-                          {convertToPersianDigits(
-                            formatDecimalHoursToTime(summary.total_hours)
-                          )}{" "}
-                          ساعت
-                        </TableCell>
-                        <TableCell>
-                          {summary.days_worked.toLocaleString("fa-IR")} روز
-                        </TableCell>
-                        <TableCell>
-                          {summary.approved_days_off.toLocaleString("fa-IR")} روز
-                        </TableCell>
-                      </TableRow>
+                        </div>
+                      </div>
                     );
                   })}
-                </TableBody>
-              </Table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
