@@ -1,5 +1,6 @@
 import type { JalaliDate } from "@/utils/jalali";
 import type { StatTone } from "./OverviewStatCard";
+import { buildYearDeficit } from "./workDeficit";
 import {
   ACCEPTED_DAY_OFF_HOURS,
   ALLOWED_ARRIVAL_TIME,
@@ -35,7 +36,8 @@ export type MetricKey =
   | "late"
   | "absence"
   | "today"
-  | "pendingLeave";
+  | "pendingLeave"
+  | "deficit";
 
 export type CellTone =
   | "default"
@@ -82,9 +84,15 @@ export interface MetricDetail {
 export interface MetricDetailInput {
   month: Pick<JalaliDate, "jy" | "jm">;
   todayKey: string;
+  /** Today's Jalali date — pro-rates the quota of the running month. */
+  today: JalaliDate;
   timeLogs: OverviewTimeLog[];
   dayOffRequests: OverviewDayOffRequest[];
   holidays: OverviewHoliday[];
+  /** Time logs of the whole selected Jalali year — powers «کسری کار». */
+  yearTimeLogs: OverviewTimeLog[];
+  /** Day-off requests of the whole selected Jalali year. */
+  yearDayOffRequests: OverviewDayOffRequest[];
   /** Credited hours for the month, as computed by the dashboard. */
   workedHours: number;
   /** Part-time employees are not credited holiday hours. */
@@ -147,9 +155,12 @@ export const buildMetricDetail = (
   const {
     month,
     todayKey,
+    today,
     timeLogs,
     dayOffRequests,
     holidays,
+    yearTimeLogs,
+    yearDayOffRequests,
     workedHours,
     countHolidayHours,
   } = input;
@@ -483,6 +494,57 @@ export const buildMetricDetail = (
           value: formatDuration(stats.workedHours),
         },
         emptyText: "برای این ماه رکوردی ثبت نشده است.",
+      };
+    }
+
+    case "deficit": {
+      const deficit = buildYearDeficit({
+        year: month.jy,
+        upToMonth: month.jm,
+        today,
+        yearTimeLogs,
+        yearDayOffRequests,
+      });
+
+      return {
+        key,
+        title: "کسری کار",
+        description:
+          "ساعت موظفی هر ماه از جدول رسمی منابع انسانی خوانده می‌شود. کسری هر ماه = ساعت موظفی منهای کارکرد ثبت‌شده و معادل ساعتی مرخصی‌های تأییدشده؛ اگر کارکرد بیشتر یا برابر موظفی باشد کسری صفر است. عدد کارت جمع کسری از ابتدای سال تا ماه انتخاب‌شده است و ماه در جریان فقط تا امروز محاسبه می‌شود.",
+        // HH:MM here so the headline, the column values and the footer of this
+        // dialog all read in one format; the card itself keeps the decimal
+        // «X ساعت» style it shares with «اضافه‌کاری».
+        headline: `${formatDuration(deficit.totalDeficitHours)} ساعت`,
+        headlineTone: "rose",
+        columns: [
+          { label: "ماه" },
+          { label: "ساعت موظفی" },
+          { label: "کارکرد" },
+          { label: "معادل مرخصی" },
+          { label: "کسری کار" },
+        ],
+        rows: deficit.months.map((row) => ({
+          id: `deficit-${row.month}`,
+          cells: [
+            text(
+              row.inProgress ? `${row.monthName} (تا امروز)` : row.monthName
+            ),
+            text(formatDuration(row.requiredHours), "muted"),
+            text(formatDuration(row.loggedHours), "teal"),
+            text(
+              row.leaveHours > 0 ? formatDuration(row.leaveHours) : "—",
+              "muted"
+            ),
+            row.deficitHours > 0
+              ? text(formatDuration(row.deficitHours), "rose")
+              : text("—", "muted"),
+          ],
+        })),
+        footer: {
+          label: "جمع کسری کار از ابتدای سال",
+          value: formatDuration(deficit.totalDeficitHours),
+        },
+        emptyText: "برای این سال هنوز ماهی برای محاسبه کسری کار وجود ندارد.",
       };
     }
 

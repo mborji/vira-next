@@ -7,6 +7,7 @@ import { OverviewStatCard } from "./OverviewStatCard";
 import { ProfileSummaryCard, type OverviewProfile } from "./ProfileSummaryCard";
 import { WorkloadRatioCard } from "./WorkloadRatioCard";
 import type { MetricKey } from "./metricDetails";
+import { buildYearDeficit } from "./workDeficit";
 import {
   buildWorkerMonthStats,
   formatCount,
@@ -29,6 +30,10 @@ interface WorkerOverviewProps {
   /** Leave requests across the whole selected Jalali year. */
   yearlyDayOffRequests: OverviewDayOffRequest[];
   yearlyDayOffLoading?: boolean;
+  /** Time logs across the whole selected Jalali year — powers «کسری کار». */
+  yearlyTimeLogs: OverviewTimeLog[];
+  /** Today's Jalali date, used to pro-rate the running month's quota. */
+  today: JalaliDate;
   holidays: OverviewHoliday[];
   /** Credited hours for the month, computed by the dashboard. */
   workedHours: number;
@@ -49,6 +54,8 @@ export const WorkerOverview = ({
   dayOffRequests,
   yearlyDayOffRequests,
   yearlyDayOffLoading,
+  yearlyTimeLogs,
+  today,
   holidays,
   workedHours,
   onMetricSelect,
@@ -69,6 +76,18 @@ export const WorkerOverview = ({
   const leaveSummary = useMemo(
     () => summarizeLeaveRequests(yearlyDayOffRequests),
     [yearlyDayOffRequests]
+  );
+
+  const yearDeficit = useMemo(
+    () =>
+      buildYearDeficit({
+        year: selectedMonth.jy,
+        upToMonth: selectedMonth.jm,
+        today,
+        yearTimeLogs: yearlyTimeLogs,
+        yearDayOffRequests: yearlyDayOffRequests,
+      }),
+    [selectedMonth, today, yearlyTimeLogs, yearlyDayOffRequests]
   );
 
   const yearLabel = convertToPersianDigits(String(selectedMonth.jy));
@@ -99,6 +118,13 @@ export const WorkerOverview = ({
           tone: "emerald",
         },
         {
+          metric: "deficit",
+          label: "کسری کار",
+          value: formatHours(yearDeficit.totalDeficitHours),
+          unit: "ساعت",
+          tone: "rose",
+        },
+        {
           metric: "attendance",
           label: "روزهای حضور",
           value: formatCount(stats.attendanceDays),
@@ -120,7 +146,7 @@ export const WorkerOverview = ({
           tone: "rose",
         },
       ] as const,
-    [stats]
+    [stats, yearDeficit]
   );
 
   return (

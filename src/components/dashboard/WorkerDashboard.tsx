@@ -86,6 +86,7 @@ export const WorkerDashboard: React.FC = () => {
     DayOffRequest[]
   >([]);
   const [yearlyDayOffLoading, setYearlyDayOffLoading] = useState(false);
+  const [yearlyTimeLogs, setYearlyTimeLogs] = useState<TimeLog[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [totalHours, setTotalHours] = useState(0);
   const [workers, setWorkers] = useState<Worker[]>([]);
@@ -217,6 +218,34 @@ export const WorkerDashboard: React.FC = () => {
     }
   }, [user, selectedMonth.jy, selectedWorkerId, isAdmin]);
 
+  /**
+   * Time logs for the whole selected Jalali year — the «کسری کار» card needs
+   * every month from فروردین up to the selected one, not just this month.
+   */
+  const fetchYearlyTimeLogs = useCallback(async () => {
+    if (!user) return;
+
+    const year = selectedMonth.jy;
+    const params: { startDate: string; endDate: string; workerId?: string } = {
+      startDate: formatDateForDB(year, 1, 1),
+      endDate: formatDateForDB(year, 12, getDaysInJalaliMonth(year, 12)),
+    };
+    if (isAdmin) {
+      if (selectedWorkerId) {
+        params.workerId = selectedWorkerId;
+      }
+    } else {
+      params.workerId = user.id;
+    }
+
+    try {
+      const data = await apiClient.getTimeLogs(params);
+      setYearlyTimeLogs(data || []);
+    } catch (error) {
+      setYearlyTimeLogs([]);
+    }
+  }, [user, selectedMonth.jy, selectedWorkerId, isAdmin]);
+
   const fetchHolidays = useCallback(async () => {
     const startDate = formatDateForDB(selectedMonth.jy, selectedMonth.jm, 1);
     const endDate = formatDateForDB(
@@ -267,6 +296,7 @@ export const WorkerDashboard: React.FC = () => {
       fetchTimeLogs();
       fetchDayOffRequests();
       fetchYearlyDayOffRequests();
+      fetchYearlyTimeLogs();
       fetchHolidays();
       if (isAdmin) {
         fetchWorkers();
@@ -277,6 +307,7 @@ export const WorkerDashboard: React.FC = () => {
     fetchTimeLogs,
     fetchDayOffRequests,
     fetchYearlyDayOffRequests,
+    fetchYearlyTimeLogs,
     fetchHolidays,
     fetchWorkers,
     isAdmin,
@@ -377,18 +408,24 @@ export const WorkerDashboard: React.FC = () => {
     () => ({
       month: selectedMonth,
       todayKey: todayDateStr,
+      today: currentDate,
       timeLogs,
       dayOffRequests,
       holidays,
+      yearTimeLogs: yearlyTimeLogs,
+      yearDayOffRequests: yearlyDayOffRequests,
       workedHours: totalHours,
       countHolidayHours: user?.worker_type !== "part_time",
     }),
     [
       selectedMonth,
       todayDateStr,
+      currentDate,
       timeLogs,
       dayOffRequests,
       holidays,
+      yearlyTimeLogs,
+      yearlyDayOffRequests,
       totalHours,
       user?.worker_type,
     ]
@@ -592,6 +629,8 @@ export const WorkerDashboard: React.FC = () => {
             dayOffRequests={dayOffRequests}
             yearlyDayOffRequests={yearlyDayOffRequests}
             yearlyDayOffLoading={yearlyDayOffLoading}
+            yearlyTimeLogs={yearlyTimeLogs}
+            today={currentDate}
             holidays={holidays}
             workedHours={totalHours}
             onMetricSelect={setActiveMetric}
