@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +18,18 @@ import {
   Users,
 } from "lucide-react";
 import { WorkerCalendar } from "@/components/worker/WorkerCalendar";
+import { WorkerOverview } from "@/components/worker/overview/WorkerOverview";
+import { MetricDetailDialog } from "@/components/worker/overview/MetricDetailDialog";
+import { CLICKABLE_CARD_CLASS } from "@/components/worker/overview/OverviewStatCard";
+import type { OverviewProfile } from "@/components/worker/overview/ProfileSummaryCard";
+import type {
+  MetricDetailInput,
+  MetricKey,
+} from "@/components/worker/overview/metricDetails";
+import {
+  ACCEPTED_DAY_OFF_HOURS,
+  HOLIDAY_HOURS,
+} from "@/components/worker/overview/workerStats";
 import { useAuthStore } from "@/hooks/useAuthStore";
 import { apiClient } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
@@ -33,8 +45,6 @@ import { convertToPersianDigits, formatDecimalHoursToTime } from "@/lib/utils";
 import { useWindowSize } from "../windowWidth/useWindowSize";
 
 const MOBILE_WIDTH_THRESHOLD = 600;
-const ACCEPTED_DAY_OFF_HOURS = 9;
-const HOLIDAY_HOURS = 9;
 
 interface TimeLog {
   id: string;
@@ -64,6 +74,7 @@ interface Worker {
   id: string;
   full_name: string;
   email: string;
+  worker_type?: "full_time" | "part_time" | null;
 }
 
 export const WorkerDashboard: React.FC = () => {
@@ -71,10 +82,16 @@ export const WorkerDashboard: React.FC = () => {
   const [selectedMonth, setSelectedMonth] = useState(getCurrentJalaliDate());
   const [timeLogs, setTimeLogs] = useState<TimeLog[]>([]);
   const [dayOffRequests, setDayOffRequests] = useState<DayOffRequest[]>([]);
+  const [yearlyDayOffRequests, setYearlyDayOffRequests] = useState<
+    DayOffRequest[]
+  >([]);
+  const [yearlyDayOffLoading, setYearlyDayOffLoading] = useState(false);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [totalHours, setTotalHours] = useState(0);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [selectedWorkerId, setSelectedWorkerId] = useState<string>("");
+  /** Summary card whose detail dialog is open, `null` when nothing is open. */
+  const [activeMetric, setActiveMetric] = useState<MetricKey | null>(null);
 
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const currentDate = getCurrentJalaliDate();
@@ -161,6 +178,45 @@ export const WorkerDashboard: React.FC = () => {
     }
   }, [user, selectedMonth, selectedWorkerId, isAdmin]);
 
+  /**
+   * Leave records for the whole selected Jalali year — feeds the overview's
+   * «خلاصه مرخصی‌ها» and «سوابق مرخصی من» blocks, which are not month-scoped.
+   */
+  const fetchYearlyDayOffRequests = useCallback(async () => {
+    if (!user) return;
+
+    const year = selectedMonth.jy;
+    const startDate = formatDateForDB(year, 1, 1);
+    const endDate = formatDateForDB(year, 12, getDaysInJalaliMonth(year, 12));
+
+    const params: { startDate: string; endDate: string; workerId?: string } = {
+      startDate,
+      endDate,
+    };
+    if (isAdmin) {
+      if (selectedWorkerId) {
+        params.workerId = selectedWorkerId;
+      }
+    } else {
+      params.workerId = user.id;
+    }
+
+    setYearlyDayOffLoading(true);
+    try {
+      const data = await apiClient.getDayOffRequests(params);
+      setYearlyDayOffRequests(
+        (data || []).map((request) => ({
+          ...request,
+          status: request.status as "pending" | "approved" | "rejected",
+        }))
+      );
+    } catch (error) {
+      setYearlyDayOffRequests([]);
+    } finally {
+      setYearlyDayOffLoading(false);
+    }
+  }, [user, selectedMonth.jy, selectedWorkerId, isAdmin]);
+
   const fetchHolidays = useCallback(async () => {
     const startDate = formatDateForDB(selectedMonth.jy, selectedMonth.jm, 1);
     const endDate = formatDateForDB(
@@ -210,12 +266,42 @@ export const WorkerDashboard: React.FC = () => {
     if (user) {
       fetchTimeLogs();
       fetchDayOffRequests();
+      fetchYearlyDayOffRequests();
       fetchHolidays();
       if (isAdmin) {
         fetchWorkers();
       }
     }
-  }, [user, fetchTimeLogs, fetchDayOffRequests, fetchHolidays, fetchWorkers, isAdmin]);
+  }, [
+    user,
+    fetchTimeLogs,
+    fetchDayOffRequests,
+    fetchYearlyDayOffRequests,
+    fetchHolidays,
+    fetchWorkers,
+    isAdmin,
+  ]);
+
+  /** Whose data the panel is showing: the selected worker for admins, else self. */
+  const displayedProfile = useMemo<OverviewProfile>(() => {
+    if (isAdmin && selectedWorkerId) {
+      const selected = workers.find((worker) => worker.id === selectedWorkerId);
+      if (selected) {
+        return {
+          fullName: selected.full_name,
+          email: selected.email,
+          workerType: selected.worker_type ?? null,
+        };
+      }
+    }
+
+    return {
+      fullName: user?.full_name,
+      email: user?.email,
+      role: user?.role,
+      workerType: user?.worker_type ?? null,
+    };
+  }, [isAdmin, selectedWorkerId, workers, user]);
 
   const navigateMonth = (direction: "prev" | "next") => {
     const newMonth = { ...selectedMonth };
@@ -285,6 +371,44 @@ export const WorkerDashboard: React.FC = () => {
   const pendingRequests = dayOffRequests.filter(
     (req) => req.status === "pending"
   ).length;
+
+  /** Live data every summary card's detail dialog is derived from. */
+  const metricDetailInput = useMemo<MetricDetailInput>(
+    () => ({
+      month: selectedMonth,
+      todayKey: todayDateStr,
+      timeLogs,
+      dayOffRequests,
+      holidays,
+      workedHours: totalHours,
+      countHolidayHours: user?.worker_type !== "part_time",
+    }),
+    [
+      selectedMonth,
+      todayDateStr,
+      timeLogs,
+      dayOffRequests,
+      holidays,
+      totalHours,
+      user?.worker_type,
+    ]
+  );
+
+  /** Makes a summary card behave like a button for mouse and keyboard alike. */
+  const metricCardProps = (metric: MetricKey, label: string) => ({
+    role: "button" as const,
+    tabIndex: 0,
+    title: `نمایش جزئیات ${label}`,
+    "aria-label": `نمایش جزئیات ${label}`,
+    onClick: () => setActiveMetric(metric),
+    onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        setActiveMetric(metric);
+      }
+    },
+    className: CLICKABLE_CARD_CLASS,
+  });
 
   return (
     <div className="space-y-6 p-6">
@@ -398,7 +522,7 @@ export const WorkerDashboard: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-        <Card>
+        <Card {...metricCardProps("today", "ساعات امروز")}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">ساعات امروز</CardTitle>
             <Clock className="h-4 w-4 text-muted-foreground" />
@@ -413,7 +537,7 @@ export const WorkerDashboard: React.FC = () => {
             </p>
           </CardContent>
         </Card>
-        <Card>
+        <Card {...metricCardProps("worked", "مجموع این ماه")}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">مجموع این ماه</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
@@ -426,7 +550,7 @@ export const WorkerDashboard: React.FC = () => {
             <p className="text-xs text-muted-foreground">ساعات کاری ماه جاری</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card {...metricCardProps("attendance", "روزهای کاری")}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">روزهای کاری</CardTitle>
             <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -438,7 +562,7 @@ export const WorkerDashboard: React.FC = () => {
             <p className="text-xs text-muted-foreground">از ابتدای ماه</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card {...metricCardProps("pendingLeave", "درخواست مرخصی")}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">درخواست مرخصی</CardTitle>
             <Coffee className="h-4 w-4 text-muted-foreground" />
@@ -452,11 +576,27 @@ export const WorkerDashboard: React.FC = () => {
         </Card>
       </div>
 
-      <Tabs defaultValue="calendar" className="space-y-4" dir="rtl">
-        <TabsList className="grid w-full grid-cols-2">
+      <Tabs defaultValue="overview" className="space-y-4" dir="rtl">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="overview">نمای کلی</TabsTrigger>
           <TabsTrigger value="calendar">تقویم کاری من</TabsTrigger>
           <TabsTrigger value="settings">تغییر رمز عبور</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="overview">
+          <WorkerOverview
+            profile={displayedProfile}
+            selectedMonth={selectedMonth}
+            todayKey={todayDateStr}
+            timeLogs={timeLogs}
+            dayOffRequests={dayOffRequests}
+            yearlyDayOffRequests={yearlyDayOffRequests}
+            yearlyDayOffLoading={yearlyDayOffLoading}
+            holidays={holidays}
+            workedHours={totalHours}
+            onMetricSelect={setActiveMetric}
+          />
+        </TabsContent>
 
         <TabsContent value="calendar">
           <WorkerCalendar
@@ -481,6 +621,12 @@ export const WorkerDashboard: React.FC = () => {
           <ChangePassword />
         </TabsContent>
       </Tabs>
+
+      <MetricDetailDialog
+        metric={activeMetric}
+        onClose={() => setActiveMetric(null)}
+        data={metricDetailInput}
+      />
     </div>
   );
 };
