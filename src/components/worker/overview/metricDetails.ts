@@ -2,6 +2,7 @@ import type { JalaliDate } from "@/utils/jalali";
 import type { StatTone } from "./OverviewStatCard";
 import {
   ACCEPTED_DAY_OFF_HOURS,
+  ALLOWED_ARRIVAL_TIME,
   DAILY_REQUIRED_HOURS,
   HOLIDAY_HOURS,
   buildWorkerMonthStats,
@@ -10,9 +11,14 @@ import {
   formatDuration,
   formatHours,
   formatJalaliFromDbDate,
+  formatMinutesAsClock,
+  formatMinutesLabel,
+  getArrivalMinutes,
   getDayName,
+  getDelayMinutes,
   getWorkingDayKeys,
   groupTimeLogsByDay,
+  isNonWorkingWeekday,
   sumLoggedHours,
   toDateKey,
   type OverviewDayOffRequest,
@@ -160,13 +166,26 @@ export const buildMetricDetail = (
   const logsByDay = groupTimeLogsByDay(timeLogs);
   const loggedDayKeys = [...logsByDay.keys()].sort();
   const workingDayKeys = getWorkingDayKeys(month, holidays);
-  const workingDaySet = new Set(workingDayKeys);
   const hoursOf = (dateKey: string) =>
     sumLoggedHours(logsByDay.get(dateKey) || []);
 
   const leaveByDay = new Map(
     dayOffRequests.map((request) => [toDateKey(request.request_date), request])
   );
+
+  const holidayByDay = new Map(
+    holidays.map((holiday) => [toDateKey(holiday.holiday_date), holiday])
+  );
+
+  /** «تعطیل رسمی» / «تعطیل هفتگی» / «روز کاری» label of a single day. */
+  const dayTypeCell = (dateKey: string): MetricCell => {
+    const holiday = holidayByDay.get(dateKey);
+    if (holiday) {
+      return badge(holiday.title?.trim() || "تعطیل رسمی", "rose");
+    }
+    if (isNonWorkingWeekday(dateKey)) return badge("تعطیل هفتگی", "rose");
+    return badge("روز کاری", "teal");
+  };
 
   switch (key) {
     case "attendance":
@@ -182,7 +201,7 @@ export const buildMetricDetail = (
         title: isToday ? "ساعات امروز" : "روزهای حضور",
         description: isToday
           ? "کارکرد ثبت‌شده برای امروز، به تفکیک شیفت."
-          : "روزهایی از ماه انتخاب‌شده که برای آن‌ها کارکرد ثبت شده است.",
+          : "روزهایی از ماه انتخاب‌شده که برای آن‌ها کارکرد ثبت شده است. کارکرد در پنجشنبه، جمعه یا تعطیل رسمی هم شمرده می‌شود و در ستون «نوع روز» مشخص است.",
         headline: isToday
           ? `${formatDuration(totalHours)} ساعت`
           : `${formatCount(stats.attendanceDays)} روز`,
@@ -190,6 +209,7 @@ export const buildMetricDetail = (
         columns: [
           { label: "تاریخ" },
           { label: "روز" },
+          { label: "نوع روز" },
           { label: "ورود" },
           { label: "خروج" },
           { label: "کارکرد" },
@@ -202,6 +222,7 @@ export const buildMetricDetail = (
             cells: [
               dateCell(dateKey),
               dayCell(dateKey),
+              dayTypeCell(dateKey),
               shiftCell(logs, "start_time", "start_time_2"),
               shiftCell(logs, "end_time", "end_time_2"),
               text(formatDuration(hoursOf(dateKey)), "teal"),
@@ -217,49 +238,51 @@ export const buildMetricDetail = (
     }
 
     case "late": {
-      const days = loggedDayKeys.filter((dateKey) => {
-        const hours = hoursOf(dateKey);
-        return (
-          workingDaySet.has(dateKey) && hours > 0 && hours < DAILY_REQUIRED_HOURS
-        );
+      // Only working days can produce a delay: Thursdays, Fridays and official
+      // holidays are already excluded from `workingDayKeys`.
+      const days = workingDayKeys.filter((dateKey) => {
+        const delay = getDelayMinutes(logsByDay.get(dateKey) || []);
+        return delay !== null && delay > 0;
       });
-      const shortfall = days.reduce(
-        (sum, dateKey) => sum + (DAILY_REQUIRED_HOURS - hoursOf(dateKey)),
-        0
-      );
 
       return {
         key,
         title: "تأخیر",
-        description: `روزهای کاری که کارکرد ثبت‌شده در آن‌ها کمتر از ${formatCount(
-          DAILY_REQUIRED_HOURS
-        )} ساعت موظفی روزانه بوده است.`,
+        description: `ساعت ورود مجاز ${formatClock(
+          ALLOWED_ARRIVAL_TIME
+        )} است. هر روز کاری که اولین ورود ثبت‌شده بعد از این ساعت باشد یک تأخیر شمرده می‌شود و مدت آن از اختلاف ورود با ${formatClock(
+          ALLOWED_ARRIVAL_TIME
+        )} محاسبه می‌شود. پنجشنبه‌ها، جمعه‌ها و تعطیلات رسمی محاسبه نمی‌شوند.`,
         headline: `${formatCount(stats.lateDays)} بار`,
         headlineTone: "amber",
         columns: [
           { label: "تاریخ" },
           { label: "روز" },
-          { label: "ورود" },
-          { label: "خروج" },
+          { label: "ورود مجاز" },
+          { label: "ورود واقعی" },
+          { label: "مدت تأخیر" },
           { label: "کارکرد" },
-          { label: "کسری" },
         ],
         rows: days.map((dateKey) => {
           const logs = logsByDay.get(dateKey) || [];
-          const hours = hoursOf(dateKey);
+          const arrival = getArrivalMinutes(logs);
+          const delay = getDelayMinutes(logs) ?? 0;
           return {
             id: dateKey,
             cells: [
               dateCell(dateKey),
               dayCell(dateKey),
-              shiftCell(logs, "start_time", "start_time_2"),
-              shiftCell(logs, "end_time", "end_time_2"),
-              text(formatDuration(hours)),
-              text(formatDuration(DAILY_REQUIRED_HOURS - hours), "rose"),
+              text(formatClock(ALLOWED_ARRIVAL_TIME), "muted"),
+              text(formatMinutesAsClock(arrival), "rose"),
+              text(formatMinutesLabel(delay), "rose"),
+              text(formatDuration(hoursOf(dateKey))),
             ],
           };
         }),
-        footer: { label: "جمع کسری", value: formatDuration(shortfall) },
+        footer: {
+          label: "جمع تأخیر",
+          value: formatMinutesLabel(stats.totalDelayMinutes),
+        },
         emptyText: "در این ماه تأخیری ثبت نشده است.",
       };
     }
@@ -276,7 +299,7 @@ export const buildMetricDetail = (
         key,
         title: "غیبت",
         description:
-          "روزهای کاری سپری‌شده که نه کارکردی برای آن‌ها ثبت شده و نه مرخصی تأییدشده‌ای دارند. جمعه‌ها و تعطیلات رسمی محاسبه نمی‌شوند.",
+          "روزهای کاری سپری‌شده که نه کارکردی برای آن‌ها ثبت شده و نه مرخصی تأییدشده‌ای دارند. پنجشنبه‌ها، جمعه‌ها و تعطیلات رسمی روز کاری نیستند و در غیبت شمرده نمی‌شوند.",
         headline: `${formatCount(stats.absenceDays)} روز`,
         headlineTone: "rose",
         columns: [
@@ -319,7 +342,7 @@ export const buildMetricDetail = (
       return {
         key,
         title: "اضافه‌کاری",
-        description: `عدد کارت از تفاضل کل کارکرد ماه و ساعت موظفی به دست می‌آید. جدول زیر روزهایی را نشان می‌دهد که کارکرد آن‌ها بیش از ${formatCount(
+        description: `عدد کارت از تفاضل کل کارکرد ماه و ساعت موظفی به دست می‌آید (ساعت موظفی فقط روزهای کاری را می‌شمارد). جدول زیر روزهایی را نشان می‌دهد که کارکرد آن‌ها بیش از ${formatCount(
           DAILY_REQUIRED_HOURS
         )} ساعت بوده است.`,
         headline: `${formatHours(stats.overtimeHours)} ساعت`,
@@ -351,7 +374,7 @@ export const buildMetricDetail = (
       return {
         key,
         title: "ساعت موظفی",
-        description: `روزهای کاری ماه (به جز جمعه‌ها و تعطیلات رسمی) ضربدر ${formatCount(
+        description: `روزهای کاری ماه (به جز پنجشنبه‌ها، جمعه‌ها و تعطیلات رسمی) ضربدر ${formatCount(
           DAILY_REQUIRED_HOURS
         )} ساعت.`,
         headline: `${formatHours(stats.requiredHours)} ساعت`,

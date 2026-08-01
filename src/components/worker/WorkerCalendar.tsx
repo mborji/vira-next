@@ -21,11 +21,34 @@ import {
   jalaliToGregorian,
   formatDateForDB,
 } from "@/utils/jalali";
-import { convertToPersianDigits, formatDecimalHoursToTime } from "@/lib/utils";
+import {
+  cn,
+  convertToPersianDigits,
+  formatDecimalHoursToTime,
+} from "@/lib/utils";
+import { NON_WORKING_WEEKDAYS } from "@/components/worker/overview/workerStats";
 import { useWindowSize } from "../windowWidth/useWindowSize";
 import { RotateCcw } from "lucide-react";
 
 const MOBILE_WIDTH_THRESHOLD = 600;
+
+/**
+ * The single coloured element of a non-working day: the pill itself.
+ * The day card stays white so the calendar keeps its clean look.
+ */
+const NON_WORKING_BADGE_CLASS =
+  "mt-1 border-rose-200 bg-rose-50 text-[10px] font-medium text-rose-600 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300";
+
+/** Persian week header — index 5 is پنجشنبه and index 6 is جمعه. */
+const WEEK_DAY_LABELS = [
+  { short: "ش", full: "شنبه" },
+  { short: "ی", full: "یکشنبه" },
+  { short: "د", full: "دوشنبه" },
+  { short: "س", full: "سه‌شنبه" },
+  { short: "چ", full: "چهارشنبه" },
+  { short: "پ", full: "پنجشنبه", off: true },
+  { short: "ج", full: "جمعه", off: true },
+];
 
 interface TimeLog {
   id: string;
@@ -572,20 +595,9 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
     );
     const dayOfWeek = gregorianDate.getDay();
 
-    let isThursday; // Thursday
-    let isFriday; // Friday
-    let isWeekend;
-
-    if (
-      selectedMonth.jy === currentDate.jy &&
-      selectedMonth.jm === currentDate.jm
-    ) {
-      isThursday = dayOfWeek === 4; // Thursday
-      isFriday = dayOfWeek === 5; // Friday
-      isWeekend = isThursday || isFriday;
-    } else {
-      isWeekend = true;
-    }
+    // Thursday and Friday are the weekly days off in every month, not only in
+    // the current one — official holidays are non-working days as well.
+    const isWeekend = NON_WORKING_WEEKDAYS.includes(dayOfWeek);
 
     const dateStr = formatDateForDB(selectedMonth.jy, selectedMonth.jm, day);
     const isToday = dateStr === today;
@@ -594,20 +606,22 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
     return (
       <div
         key={day}
-        className={`min-h-24 border border-border p-2
-                  ${isWeekend ? "bg-muted" : "bg-background"}
-                  ${holiday ? "bg-amber-50" : ""}
-                  ${
-                    isToday
-                      ? isWeekend
-                        ? "border-primary ring-1 ring-primary"
-                        : "bg-primary/10 border-primary ring-1 ring-primary"
-                      : ""
-                  }
-  `}
+        className={cn(
+          "min-h-24 border border-border bg-background p-2",
+          isToday && "border-primary bg-primary/10 ring-1 ring-primary"
+        )}
       >
         <div className="flex justify-between items-start mb-2">
-          <span className="text-sm font-medium">
+          <span
+            className="text-sm font-medium"
+            title={
+              holiday
+                ? holiday.title?.trim() || "تعطیل رسمی"
+                : isWeekend
+                ? "تعطیل هفتگی"
+                : undefined
+            }
+          >
             {day.toLocaleString("fa-IR")}
           </span>
           <div className="flex gap-1">
@@ -679,10 +693,20 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
           </Badge>
         )}
 
-        {holiday && (
-          <Badge variant="outline" className="text-xs mt-1 border-amber-500">
-            تعطیل
+        {holiday ? (
+          <Badge
+            variant="outline"
+            className={cn(NON_WORKING_BADGE_CLASS, "whitespace-normal")}
+            title={holiday.title?.trim() || "تعطیل رسمی"}
+          >
+            {holiday.title?.trim() || "تعطیل رسمی"}
           </Badge>
+        ) : (
+          isWeekend && (
+            <Badge variant="outline" className={NON_WORKING_BADGE_CLASS}>
+              تعطیل هفتگی
+            </Badge>
+          )
         )}
       </div>
     );
@@ -755,13 +779,21 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-7 gap-1 mb-4">
-            {["ش", "ی", "د", "س", "چ", "پ", "ج"].map((day) => (
-              <div key={day} className="text-center text-sm font-medium py-2">
-                {day}
+          <div className="grid grid-cols-7 gap-1 mb-2">
+            {WEEK_DAY_LABELS.map((day) => (
+              <div
+                key={day.short}
+                title={day.full}
+                className={cn(
+                  "py-2 text-center text-sm font-medium",
+                  day.off && "font-semibold text-rose-600 dark:text-rose-400"
+                )}
+              >
+                {day.short}
               </div>
             ))}
           </div>
+
 
           <div className="grid grid-cols-7 gap-1">
             {Array.from({ length: startIndex }).map((_, i) => (
@@ -771,6 +803,31 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
               />
             ))}
             {days.map((day) => renderCalendarDay(day))}
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-3 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <Badge
+                variant="outline"
+                className={cn(NON_WORKING_BADGE_CLASS, "mt-0")}
+              >
+                تعطیل هفتگی
+              </Badge>
+              پنجشنبه و جمعه
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Badge
+                variant="outline"
+                className={cn(NON_WORKING_BADGE_CLASS, "mt-0")}
+              >
+                عنوان تعطیلی
+              </Badge>
+              تعطیل رسمی
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-3 w-3 rounded border border-primary bg-primary/10" />
+              امروز
+            </span>
           </div>
         </CardContent>
       </Card>

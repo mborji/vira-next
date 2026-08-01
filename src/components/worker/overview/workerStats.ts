@@ -20,8 +20,18 @@ export const ACCEPTED_DAY_OFF_HOURS = 9;
 /** Hours credited for an official holiday (full-time employees only). */
 export const HOLIDAY_HOURS = 9;
 
-/** `Date.getDay()` value for Friday — the weekly day off in Iran. */
-const FRIDAY = 5;
+/**
+ * Weekly days off, as `Date.getDay()` values — Thursday (4) and Friday (5).
+ * They never count as working days, so they are excluded from the required
+ * hours, from absences and from late arrivals.
+ */
+export const NON_WORKING_WEEKDAYS: readonly number[] = [4, 5];
+
+/**
+ * Latest arrival that is still on time. Anything after this counts as a delay,
+ * and the delay duration is the difference from this moment.
+ */
+export const ALLOWED_ARRIVAL_TIME = "09:30";
 
 export interface OverviewTimeLog {
   id: string;
@@ -60,6 +70,30 @@ export const parseDurationToHours = (value?: string | null): number => {
   return hours + (Number.isFinite(minutes) ? minutes : 0) / 60;
 };
 
+/**
+ * Minutes since midnight for a clock value (`HH:MM`, `HH:MM:SS` or an ISO
+ * date-time). Returns `null` when the value is missing or unparsable.
+ */
+export const parseClockToMinutes = (value?: string | null): number | null => {
+  if (!value) return null;
+  const raw = String(value);
+  const timePart = raw.includes("T") ? raw.split("T")[1] : raw;
+  const match = timePart.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+};
+
+/** Minutes since midnight of the configured on-time arrival. */
+export const ALLOWED_ARRIVAL_MINUTES =
+  parseClockToMinutes(ALLOWED_ARRIVAL_TIME) ?? 0;
+
+/** True when the given `YYYY-MM-DD` key falls on a weekly day off. */
+export const isNonWorkingWeekday = (dateKey: string): boolean => {
+  const [year, month, day] = toDateKey(dateKey).split("-").map(Number);
+  if (!year || !month || !day) return false;
+  return NON_WORKING_WEEKDAYS.includes(new Date(year, month - 1, day).getDay());
+};
+
 export const loggedHoursOf = (log: OverviewTimeLog): number =>
   parseDurationToHours(log.hours_worked_str || log.hours_worked);
 
@@ -83,8 +117,33 @@ export const sumLoggedHours = (logs: OverviewTimeLog[]): number =>
   logs.reduce((total, log) => total + loggedHoursOf(log), 0);
 
 /**
- * Every day of the Jalali month that counts as a working day:
- * the month's days minus Fridays and minus official holidays.
+ * Earliest clock-in of a day, in minutes since midnight. Both shifts are
+ * considered so an out-of-order second shift cannot hide the real arrival.
+ */
+export const getArrivalMinutes = (logs: OverviewTimeLog[]): number | null => {
+  const arrivals = logs
+    .flatMap((log) => [log.start_time, log.start_time_2])
+    .map((value) => parseClockToMinutes(value))
+    .filter((value): value is number => value !== null);
+
+  return arrivals.length ? Math.min(...arrivals) : null;
+};
+
+/**
+ * Minutes late for a day: the gap between the actual arrival and
+ * {@link ALLOWED_ARRIVAL_TIME}. `0` when on time, `null` when no clock-in
+ * was recorded (a missing arrival is an absence, not a delay).
+ */
+export const getDelayMinutes = (logs: OverviewTimeLog[]): number | null => {
+  const arrival = getArrivalMinutes(logs);
+  if (arrival === null) return null;
+  return Math.max(0, arrival - ALLOWED_ARRIVAL_MINUTES);
+};
+
+/**
+ * Every day of the Jalali month that counts as a working day: the month's days
+ * minus the weekly days off ({@link NON_WORKING_WEEKDAYS} — Thursday and
+ * Friday) and minus official holidays.
  */
 export const getWorkingDayKeys = (
   month: Pick<JalaliDate, "jy" | "jm">,
@@ -95,7 +154,8 @@ export const getWorkingDayKeys = (
   const keys: string[] = [];
 
   for (let day = 1; day <= daysInMonth; day += 1) {
-    if (jalaliToGregorian(month.jy, month.jm, day).getDay() === FRIDAY) continue;
+    const weekday = jalaliToGregorian(month.jy, month.jm, day).getDay();
+    if (NON_WORKING_WEEKDAYS.includes(weekday)) continue;
     const key = formatDateForDB(month.jy, month.jm, day);
     if (holidayKeys.has(key)) continue;
     keys.push(key);
@@ -113,8 +173,10 @@ export interface WorkerMonthStats {
   overtimeHours: number;
   /** Distinct days with at least one time log. */
   attendanceDays: number;
-  /** Working days logged with less than a full day of work. */
+  /** Working days whose clock-in was after {@link ALLOWED_ARRIVAL_TIME}. */
   lateDays: number;
+  /** Total minutes late across those days. */
+  totalDelayMinutes: number;
   /** Elapsed working days with no time log and no approved leave. */
   absenceDays: number;
   /** `workedHours / requiredHours` as a percentage (not clamped). */
@@ -141,14 +203,7 @@ export const buildWorkerMonthStats = ({
   workedHours,
 }: BuildStatsInput): WorkerMonthStats => {
   const workingDayKeys = getWorkingDayKeys(month, holidays);
-  const workingDaySet = new Set(workingDayKeys);
-
-  const hoursByDay = new Map<string, number>();
-  timeLogs.forEach((log) => {
-    const key = toDateKey(log.date);
-    if (!key) return;
-    hoursByDay.set(key, (hoursByDay.get(key) || 0) + loggedHoursOf(log));
-  });
+  const logsByDay = groupTimeLogsByDay(timeLogs);
 
   const approvedLeaveKeys = new Set(
     dayOffRequests
@@ -158,22 +213,24 @@ export const buildWorkerMonthStats = ({
 
   const requiredHours = workingDayKeys.length * DAILY_REQUIRED_HOURS;
 
-  const lateDays = [...hoursByDay.entries()].filter(
-    ([key, hours]) =>
-      workingDaySet.has(key) && hours > 0 && hours < DAILY_REQUIRED_HOURS
-  ).length;
+  // A delay is a late clock-in on a working day — never on a Thursday,
+  // a Friday or an official holiday.
+  const delays = workingDayKeys
+    .map((key) => getDelayMinutes(logsByDay.get(key) || []))
+    .filter((minutes): minutes is number => minutes !== null && minutes > 0);
 
   const absenceDays = workingDayKeys.filter(
     (key) =>
-      key <= todayKey && !hoursByDay.has(key) && !approvedLeaveKeys.has(key)
+      key <= todayKey && !logsByDay.has(key) && !approvedLeaveKeys.has(key)
   ).length;
 
   return {
     workedHours,
     requiredHours,
     overtimeHours: Math.max(0, workedHours - requiredHours),
-    attendanceDays: hoursByDay.size,
-    lateDays,
+    attendanceDays: logsByDay.size,
+    lateDays: delays.length,
+    totalDelayMinutes: delays.reduce((sum, minutes) => sum + minutes, 0),
     absenceDays,
     completionPercent:
       requiredHours > 0 ? (workedHours / requiredHours) * 100 : 0,
@@ -215,6 +272,25 @@ export const formatHours = (value: number): string => {
   return convertToPersianDigits(text);
 };
 
+/**
+ * A duration in minutes, written out in Persian:
+ * `0` → `بدون تأخیر`, `5` → `۵ دقیقه`, `75` → `۱ ساعت و ۱۵ دقیقه`.
+ */
+export const formatMinutesLabel = (
+  minutes: number,
+  zeroLabel = "بدون تأخیر"
+): string => {
+  const total = Math.max(0, Math.round(minutes));
+  if (total === 0) return zeroLabel;
+
+  const hours = Math.floor(total / 60);
+  const rest = total % 60;
+
+  if (!hours) return `${formatCount(rest)} دقیقه`;
+  if (!rest) return `${formatCount(hours)} ساعت`;
+  return `${formatCount(hours)} ساعت و ${formatCount(rest)} دقیقه`;
+};
+
 /** Decimal hours as a Persian `HH:MM` clock, e.g. `7.5` → `۰۷:۳۰`. */
 export const formatDuration = (hours: number): string =>
   convertToPersianDigits(formatDecimalHoursToTime(hours));
@@ -230,6 +306,17 @@ export const formatClock = (value?: string | null): string => {
   const match = timePart.match(/^(\d{1,2}):(\d{2})/);
   if (!match) return "—";
   return convertToPersianDigits(`${match[1].padStart(2, "0")}:${match[2]}`);
+};
+
+/** Minutes since midnight as a Persian `HH:MM` clock, e.g. `575` → `۰۹:۳۵`. */
+export const formatMinutesAsClock = (minutes: number | null): string => {
+  if (minutes === null || !Number.isFinite(minutes)) return "—";
+  const total = Math.max(0, Math.round(minutes));
+  return convertToPersianDigits(
+    `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(
+      total % 60
+    ).padStart(2, "0")}`
+  );
 };
 
 /** Persian weekday name of a `YYYY-MM-DD` key, e.g. `۱۴۰۵/۰۵/۰۱` → `پنج‌شنبه`. */
