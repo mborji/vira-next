@@ -84,6 +84,12 @@ interface WorkerCalendarProps {
   holidays: Holiday[];
   isAdmin: boolean;
   selectedWorkerId?: string;
+  /**
+   * View-only calendar. Time logs and leave requests are always written for
+   * the signed-in user, so a manager inspecting another employee must not be
+   * offered the edit actions.
+   */
+  readOnly?: boolean;
   onDataChange: () => void;
 }
 
@@ -96,6 +102,7 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
   dayOffRequests,
   holidays,
   isAdmin,
+  readOnly = false,
   onDataChange,
 }) => {
   const { user } = useAuthStore();
@@ -482,6 +489,7 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
   };
 
   const openLogDialog = (jy: number, jm: number, jd: number) => {
+    if (readOnly) return;
     if (!canEditDate(jy, jm, jd)) {
       toast({
         title: "دسترسی محدود",
@@ -525,6 +533,7 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
   };
 
   const openDayOffDialog = (jy: number, jm: number, jd: number) => {
+    if (readOnly) return;
     if (!canEditDate(jy, jm, jd)) {
       toast({
         title: "دسترسی محدود",
@@ -553,7 +562,7 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
   };
 
   const openHolidayDialog = (jy: number, jm: number, jd: number) => {
-    if (!isAdmin) return;
+    if (readOnly || !isAdmin) return;
     setSelectedDate({ jy, jm, jd });
     const dateStr = formatDateForDB(jy, jm, jd);
     const existingHoliday = holidays.find(
@@ -598,6 +607,9 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
     // Thursday and Friday are the weekly days off in every month, not only in
     // the current one — official holidays are non-working days as well.
     const isWeekend = NON_WORKING_WEEKDAYS.includes(dayOfWeek);
+    // Official holidays and the weekly days off share the same red numeral;
+    // the day card itself stays white.
+    const isNonWorkingDay = isWeekend || Boolean(holiday);
 
     const dateStr = formatDateForDB(selectedMonth.jy, selectedMonth.jm, day);
     const isToday = dateStr === today;
@@ -613,7 +625,10 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
       >
         <div className="flex justify-between items-start mb-2">
           <span
-            className="text-sm font-medium"
+            className={cn(
+              "text-sm font-medium",
+              isNonWorkingDay && "font-semibold text-rose-600 dark:text-rose-400"
+            )}
             title={
               holiday
                 ? holiday.title?.trim() || "تعطیل رسمی"
@@ -624,7 +639,7 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
           >
             {day.toLocaleString("fa-IR")}
           </span>
-          <div className="flex gap-1">
+          <div className={cn("flex gap-1", readOnly && "hidden")}>
             <Button
               size="sm"
               variant="ghost"
@@ -773,8 +788,16 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
               {convertToPersianDigits(formatDecimalHoursToTime(totalHours))}{" "}
               ساعت
             </span>
-            {!isAdmin && selectedMonth.jm == currentDate.jm && (
-              <span className="text-amber-600">ویرایش فقط برای ماه جاری</span>
+            {readOnly ? (
+              <span className="text-muted-foreground">
+                نمای فقط‌خواندنی — ثبت و ویرایش از بخش «ساعات کاری» پنل مدیریت
+                انجام می‌شود
+              </span>
+            ) : (
+              !isAdmin &&
+              selectedMonth.jm == currentDate.jm && (
+                <span className="text-amber-600">ویرایش فقط برای ماه جاری</span>
+              )
             )}
           </div>
         </CardHeader>

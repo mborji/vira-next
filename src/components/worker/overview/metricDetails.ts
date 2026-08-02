@@ -1,10 +1,18 @@
 import type { JalaliDate } from "@/utils/jalali";
 import type { StatTone } from "./OverviewStatCard";
-import { buildYearDeficit } from "./workDeficit";
+import {
+  getMonthLabel,
+  getMonthQuota,
+  getQuotaDailyHours,
+} from "./monthlyWorkQuota";
+import {
+  buildYearBalance,
+  getBalanceLabel,
+  getBalanceTone,
+} from "./workBalance";
 import {
   ACCEPTED_DAY_OFF_HOURS,
   ALLOWED_ARRIVAL_TIME,
-  DAILY_REQUIRED_HOURS,
   HOLIDAY_HOURS,
   buildWorkerMonthStats,
   formatClock,
@@ -31,13 +39,12 @@ import {
 export type MetricKey =
   | "worked"
   | "required"
-  | "overtime"
+  | "balance"
   | "attendance"
   | "late"
   | "absence"
   | "today"
-  | "pendingLeave"
-  | "deficit";
+  | "pendingLeave";
 
 export type CellTone =
   | "default"
@@ -89,7 +96,7 @@ export interface MetricDetailInput {
   timeLogs: OverviewTimeLog[];
   dayOffRequests: OverviewDayOffRequest[];
   holidays: OverviewHoliday[];
-  /** Time logs of the whole selected Jalali year — powers «کسری کار». */
+  /** Time logs of the whole selected Jalali year — powers «تراز کارکرد». */
   yearTimeLogs: OverviewTimeLog[];
   /** Day-off requests of the whole selected Jalali year. */
   yearDayOffRequests: OverviewDayOffRequest[];
@@ -212,10 +219,12 @@ export const buildMetricDetail = (
         title: isToday ? "ساعات امروز" : "روزهای حضور",
         description: isToday
           ? "کارکرد ثبت‌شده برای امروز، به تفکیک شیفت."
-          : "روزهایی از ماه انتخاب‌شده که برای آن‌ها کارکرد ثبت شده است. کارکرد در پنجشنبه، جمعه یا تعطیل رسمی هم شمرده می‌شود و در ستون «نوع روز» مشخص است.",
+          : "شمار روزهایی که برای آن‌ها کارکرد ثبت شده، در برابر تعداد روز کاری همان ماه طبق جدول رسمی. کارکرد در پنجشنبه، جمعه یا تعطیل رسمی هم شمرده می‌شود و در ستون «نوع روز» مشخص است.",
         headline: isToday
           ? `${formatDuration(totalHours)} ساعت`
-          : `${formatCount(stats.attendanceDays)} روز`,
+          : `${formatCount(stats.attendanceDays)} / ${formatCount(
+              stats.requiredWorkingDays
+            )} روز`,
         headlineTone: isToday ? "teal" : "blue",
         columns: [
           { label: "تاریخ" },
@@ -341,88 +350,63 @@ export const buildMetricDetail = (
       };
     }
 
-    case "overtime": {
-      const days = loggedDayKeys.filter(
-        (dateKey) => hoursOf(dateKey) > DAILY_REQUIRED_HOURS
-      );
-      const surplus = days.reduce(
-        (sum, dateKey) => sum + (hoursOf(dateKey) - DAILY_REQUIRED_HOURS),
-        0
-      );
-
-      return {
-        key,
-        title: "اضافه‌کاری",
-        description: `عدد کارت از تفاضل کل کارکرد ماه و ساعت موظفی به دست می‌آید (ساعت موظفی فقط روزهای کاری را می‌شمارد). جدول زیر روزهایی را نشان می‌دهد که کارکرد آن‌ها بیش از ${formatCount(
-          DAILY_REQUIRED_HOURS
-        )} ساعت بوده است.`,
-        headline: `${formatHours(stats.overtimeHours)} ساعت`,
-        headlineTone: "emerald",
-        columns: [
-          { label: "تاریخ" },
-          { label: "روز" },
-          { label: "کارکرد" },
-          { label: "مازاد روزانه" },
-        ],
-        rows: days.map((dateKey) => {
-          const hours = hoursOf(dateKey);
-          return {
-            id: dateKey,
-            cells: [
-              dateCell(dateKey),
-              dayCell(dateKey),
-              text(formatDuration(hours)),
-              text(formatDuration(hours - DAILY_REQUIRED_HOURS), "emerald"),
-            ],
-          };
-        }),
-        footer: { label: "جمع مازاد روزانه", value: formatDuration(surplus) },
-        emptyText: "در این ماه روزی با کارکرد بیش از حد موظفی ثبت نشده است.",
-      };
-    }
-
     case "required": {
+      const quota = getMonthQuota(month.jm);
+      const monthName = getMonthLabel(month.jm);
+
       return {
         key,
         title: "ساعت موظفی",
-        description: `روزهای کاری ماه (به جز پنجشنبه‌ها، جمعه‌ها و تعطیلات رسمی) ضربدر ${formatCount(
-          DAILY_REQUIRED_HOURS
-        )} ساعت.`,
+        description: `ساعت موظفی هر ماه از جدول رسمی منابع انسانی خوانده می‌شود: روزهای ماه منهای جمعه‌ها و تعطیلات رسمی، ضربدر سهم ساعتی هر روز کاری (هفته‌ی کاری ${formatCount(
+          44
+        )} ساعته).`,
         headline: `${formatHours(stats.requiredHours)} ساعت`,
         headlineTone: "slate",
-        columns: [
-          { label: "تاریخ" },
-          { label: "روز" },
-          { label: "ساعت موظفی" },
-          { label: "وضعیت" },
-        ],
-        rows: workingDayKeys.map((dateKey) => {
-          const hasLog = logsByDay.has(dateKey);
-          const approvedLeave =
-            leaveByDay.get(dateKey)?.status === "approved";
-          const status = hasLog
-            ? badge("کارکرد ثبت شده", "teal")
-            : approvedLeave
-            ? badge("مرخصی تأیید شده", "emerald")
-            : dateKey <= todayKey
-            ? badge("بدون ثبت", "rose")
-            : badge("پیش رو", "muted");
-
-          return {
-            id: dateKey,
-            cells: [
-              dateCell(dateKey),
-              dayCell(dateKey),
-              text(formatDuration(DAILY_REQUIRED_HOURS)),
-              status,
-            ],
-          };
-        }),
+        columns: [{ label: "شرح" }, { label: "مقدار" }],
+        rows: quota
+          ? [
+              {
+                id: "days",
+                cells: [
+                  text(`روزهای ${monthName}`),
+                  text(`${formatCount(quota.daysInMonth)} روز`),
+                ],
+              },
+              {
+                id: "fridays",
+                cells: [
+                  text("تعداد جمعه", "muted"),
+                  text(`${formatCount(quota.fridays)} روز`, "rose"),
+                ],
+              },
+              {
+                id: "holidays",
+                cells: [
+                  text("تعطیل رسمی غیرجمعه", "muted"),
+                  text(`${formatCount(quota.otherHolidays)} روز`, "rose"),
+                ],
+              },
+              {
+                id: "working",
+                cells: [
+                  text("تعداد روز کاری"),
+                  text(`${formatCount(quota.workingDays)} روز`, "teal"),
+                ],
+              },
+              {
+                id: "daily",
+                cells: [
+                  text("سهم هر روز کاری", "muted"),
+                  text(formatDuration(getQuotaDailyHours(month.jm))),
+                ],
+              },
+            ]
+          : [],
         footer: {
-          label: "جمع ساعت موظفی",
+          label: "جمع ساعت موظفی ماه",
           value: formatDuration(stats.requiredHours),
         },
-        emptyText: "روز کاری‌ای برای این ماه یافت نشد.",
+        emptyText: "برای این ماه ساعت موظفی رسمی ثبت نشده است.",
       };
     }
 
@@ -497,8 +481,8 @@ export const buildMetricDetail = (
       };
     }
 
-    case "deficit": {
-      const deficit = buildYearDeficit({
+    case "balance": {
+      const balance = buildYearBalance({
         year: month.jy,
         upToMonth: month.jm,
         today,
@@ -506,45 +490,60 @@ export const buildMetricDetail = (
         yearDayOffRequests,
       });
 
+      const signed = (hours: number): MetricCell => {
+        const tone = getBalanceTone(hours);
+        if (tone === "slate") return text("۰۰:۰۰", "muted");
+        return text(
+          `${formatDuration(Math.abs(hours))} ${getBalanceLabel(hours)}`,
+          tone
+        );
+      };
+
       return {
         key,
-        title: "کسری کار",
+        title: "تراز کارکرد",
         description:
-          "ساعت موظفی هر ماه از جدول رسمی منابع انسانی خوانده می‌شود. کسری هر ماه = ساعت موظفی منهای کارکرد ثبت‌شده و معادل ساعتی مرخصی‌های تأییدشده؛ اگر کارکرد بیشتر یا برابر موظفی باشد کسری صفر است. عدد کارت جمع کسری از ابتدای سال تا ماه انتخاب‌شده است و ماه در جریان فقط تا امروز محاسبه می‌شود.",
-        // HH:MM here so the headline, the column values and the footer of this
-        // dialog all read in one format; the card itself keeps the decimal
-        // «X ساعت» style it shares with «اضافه‌کاری».
-        headline: `${formatDuration(deficit.totalDeficitHours)} ساعت`,
-        headlineTone: "rose",
+          "تراز هر ماه = کارکرد واقعی منهای ساعت موظفی همان ماه طبق جدول رسمی. عدد مثبت اضافه‌کاری و عدد منفی کسری کار است. کارکرد واقعی شامل ساعات ثبت‌شده به‌علاوه معادل ساعتی مرخصی‌های تأییدشده است. عدد کارت تراز تجمعی از ابتدای سال تا ماه انتخاب‌شده است و ماه در جریان فقط تا امروز محاسبه می‌شود.",
+        headline: `${formatDuration(
+          Math.abs(balance.totalBalanceHours)
+        )} ساعت ${getBalanceLabel(balance.totalBalanceHours)}`,
+        headlineTone: getBalanceTone(balance.totalBalanceHours),
         columns: [
           { label: "ماه" },
+          { label: "روز کاری" },
           { label: "ساعت موظفی" },
-          { label: "کارکرد" },
-          { label: "معادل مرخصی" },
-          { label: "کسری کار" },
+          { label: "کارکرد واقعی" },
+          { label: "تراز ماه" },
         ],
-        rows: deficit.months.map((row) => ({
-          id: `deficit-${row.month}`,
+        rows: balance.months.map((row) => ({
+          id: `balance-${row.month}`,
           cells: [
             text(
               row.inProgress ? `${row.monthName} (تا امروز)` : row.monthName
             ),
-            text(formatDuration(row.requiredHours), "muted"),
-            text(formatDuration(row.loggedHours), "teal"),
             text(
-              row.leaveHours > 0 ? formatDuration(row.leaveHours) : "—",
+              row.inProgress
+                ? `${formatCount(row.requiredWorkingDays)} از ${formatCount(
+                    row.fullWorkingDays
+                  )}`
+                : `${formatCount(row.fullWorkingDays)} روز`,
               "muted"
             ),
-            row.deficitHours > 0
-              ? text(formatDuration(row.deficitHours), "rose")
-              : text("—", "muted"),
+            text(formatDuration(row.requiredHours), "muted"),
+            text(formatDuration(row.workedHours), "teal"),
+            signed(row.balanceHours),
           ],
         })),
         footer: {
-          label: "جمع کسری کار از ابتدای سال",
-          value: formatDuration(deficit.totalDeficitHours),
+          label: "تراز تجمعی از ابتدای سال",
+          value:
+            getBalanceTone(balance.totalBalanceHours) === "slate"
+              ? "۰۰:۰۰"
+              : `${formatDuration(
+                  Math.abs(balance.totalBalanceHours)
+                )} ${getBalanceLabel(balance.totalBalanceHours)}`,
         },
-        emptyText: "برای این سال هنوز ماهی برای محاسبه کسری کار وجود ندارد.",
+        emptyText: "برای این سال هنوز ماهی برای محاسبه تراز کارکرد وجود ندارد.",
       };
     }
 

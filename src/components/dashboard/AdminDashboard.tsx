@@ -35,7 +35,7 @@ import { BlogManagement } from "./BlogManagement";
 import { WorkerManagement } from "./WorkerManagement";
 import ServiceManagement from "./ServiceManagement";
 import ProjectManagement from "./ProjectManagement";
-import { WorkerCalendar } from "@/components/worker/WorkerCalendar";
+import { WorkerDashboard } from "@/components/dashboard/WorkerDashboard";
 import {
   formatDateForDB,
   getDaysInJalaliMonth,
@@ -187,39 +187,9 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
   const [userSearch, setUserSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
 
-  // Calendar state
-  const [selectedMonth, setSelectedMonth] = useState(getCurrentJalaliDate());
-  const [timeLogs, setTimeLogs] = useState<TimeLog[]>([]);
-  const [dayOffRequests, setDayOffRequests] = useState<DayOffRequest[]>([]);
-  const [holidays, setHolidays] = useState<Holiday[]>([]);
-  const [totalHours, setTotalHours] = useState(0);
-
-  const { width } = useWindowSize();
-  const isTooNarrow = width !== undefined && width < MOBILE_WIDTH_THRESHOLD;
-
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const currentDate = getCurrentJalaliDate();
 
-  const todayDateStr = formatDateForDB(
-    currentDate.jy,
-    currentDate.jm,
-    currentDate.jd
-  );
-
-  const convertTimeToHours = (timeStr: string): number => {
-    if (!timeStr) return 0;
-    const [hours, minutes] = timeStr.split(":").map(Number);
-    return hours + (minutes || 0) / 60;
-  };
-
-  const hoursToday = convertTimeToHours(
-    timeLogs.find((log) => log.date.substring(0, 10) === todayDateStr)
-      ?.hours_worked || "0:00"
-  );
-  const daysWorked = new Set(timeLogs.map((log) => log.date)).size;
-  const pendingRequests = dayOffRequests.filter(
-    (req) => req.status === "pending"
-  ).length;
 
   const fetchSubmissions = async () => {
     try {
@@ -306,101 +276,11 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
     }
   };
 
-  const fetchTimeLogs = async () => {
-    if (!user) return;
-
-    const startDate = formatDateForDB(selectedMonth.jy, selectedMonth.jm, 1);
-    const endDate = formatDateForDB(
-      selectedMonth.jy,
-      selectedMonth.jm,
-      getDaysInJalaliMonth(selectedMonth.jy, selectedMonth.jm)
-    );
-
-    try {
-      const data = await apiClient.getTimeLogs({
-        startDate,
-        endDate,
-        workerId: user.id,
-      });
-
-      setTimeLogs(data || []);
-    } catch (error) {
-      toast({
-        title: "خطا",
-        description: "خطا در دریافت ساعات کاری",
-        variant: "destructive",
-      });
-    }
-  };
-
-  useEffect(() => {
-    const workedHoursTotal = timeLogs.reduce((sum, log) => {
-      const d = log.hours_worked_str || "0:00";
-      const [hours, minutes] = (d || "0:00").split(":").map(Number);
-      return sum + hours + (minutes || 0) / 60;
-    }, 0);
-    const approvedDayOffHours =
-      dayOffRequests.filter((request) => request.status === "approved").length *
-      ACCEPTED_DAY_OFF_HOURS;
-    const holidayHours =
-      user?.worker_type === "part_time" ? 0 : holidays.length * HOLIDAY_HOURS;
-    setTotalHours(workedHoursTotal + approvedDayOffHours + holidayHours);
-  }, [timeLogs, dayOffRequests, holidays, user?.worker_type]);
-
-  const fetchDayOffRequests = async () => {
-    if (!user) return;
-
-    const startDate = formatDateForDB(selectedMonth.jy, selectedMonth.jm, 1);
-    const endDate = formatDateForDB(
-      selectedMonth.jy,
-      selectedMonth.jm,
-      getDaysInJalaliMonth(selectedMonth.jy, selectedMonth.jm)
-    );
-
-    try {
-      const data = await apiClient.getDayOffRequests({
-        startDate,
-        endDate,
-        workerId: user.id,
-      });
-
-      const typedData = (data || []).map((request) => ({
-        ...request,
-        status: request.status as "pending" | "approved" | "rejected",
-      }));
-      setDayOffRequests(typedData);
-    } catch (error) {
-      // Handle error silently
-    }
-  };
-
-  const fetchHolidays = async () => {
-    const startDate = formatDateForDB(selectedMonth.jy, selectedMonth.jm, 1);
-    const endDate = formatDateForDB(
-      selectedMonth.jy,
-      selectedMonth.jm,
-      getDaysInJalaliMonth(selectedMonth.jy, selectedMonth.jm)
-    );
-    try {
-      const data = await apiClient.getHolidays({ startDate, endDate });
-      setHolidays(data || []);
-    } catch (error) {
-      setHolidays([]);
-    }
-  };
 
   useEffect(() => {
     fetchSubmissions();
     fetchDashboardStats();
   }, []);
-
-  useEffect(() => {
-    if (user) {
-      fetchTimeLogs();
-      fetchDayOffRequests();
-      fetchHolidays();
-    }
-  }, [user, selectedMonth]);
 
   const fetchClients = async () => {
     setClientsLoading(true);
@@ -440,53 +320,6 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
     } catch (error) {
       // Non-blocking: the column falls back to the "no activity" placeholder.
     }
-  };
-
-  const navigateMonth = (direction: "prev" | "next") => {
-    const newMonth = { ...selectedMonth };
-    if (direction === "next") {
-      if (newMonth.jm === 12) {
-        newMonth.jy += 1;
-        newMonth.jm = 1;
-      } else {
-        newMonth.jm += 1;
-      }
-    } else {
-      if (newMonth.jm === 1) {
-        newMonth.jy -= 1;
-        newMonth.jm = 12;
-      } else {
-        newMonth.jm -= 1;
-      }
-    }
-    setSelectedMonth(newMonth);
-  };
-
-  const canNavigate = (direction: "prev" | "next") => {
-    if (isTooNarrow) return false;
-
-    // Workers can navigate through the current year
-    const isSameMonth = (d1, d2) => d1.jy === d2.jy && d1.jm === d2.jm;
-
-    const isSelectedMonthBeforeCurrentYearStart = () => {
-      return selectedMonth.jy < currentDate.jy;
-    };
-
-    if (direction === "prev") {
-      // Workers can't go to previous years. They can go back to the first month of the current year.
-      // So, disable the 'prev' button if the selected month is the first month of the current year.
-      return (
-        !isSelectedMonthBeforeCurrentYearStart() &&
-        !(selectedMonth.jy === currentDate.jy && selectedMonth.jm === 1)
-      );
-    }
-
-    if (direction === "next") {
-      // Workers cannot go to the next month if they are already in the current month.
-      return !isSameMonth(selectedMonth, currentDate);
-    }
-
-    return false;
   };
 
   const handleLogout = async () => {
@@ -695,7 +528,7 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
               کارمندان
             </TabsTrigger>
             <TabsTrigger value="calendar" className="persian-body">
-              تقویم من
+              پنل شخصی من
             </TabsTrigger>
             <TabsTrigger value="blogs" className="persian-body">
               مقالات
@@ -1079,92 +912,17 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
             <WorkerManagement />
           </TabsContent>
 
+          {/*
+            The manager's own personal panel — the very same dashboard a
+            regular employee sees, scoped to the signed-in user. Reusing it
+            keeps attendance, balance, delay and leave logic in one place.
+            The password tab is hidden because this dashboard already has one.
+          */}
           <TabsContent value="calendar">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-              <StatCard
-                title="ساعات امروز"
-                value={`${convertToPersianDigits(
-                  formatDecimalHoursToTime(hoursToday)
-                )} ساعت`}
-                icon={Clock}
-                accent="teal"
-                hint={
-                  hoursToday > 0 ? "ثبت شده برای امروز" : "برای امروز ثبت نشده"
-                }
-              />
-              <StatCard
-                title="مجموع این ماه"
-                value={`${convertToPersianDigits(
-                  formatDecimalHoursToTime(totalHours)
-                )} ساعت`}
-                icon={TrendingUp}
-                accent="violet"
-                hint="ساعات کاری ماه جاری"
-              />
-              <StatCard
-                title="روزهای کاری"
-                value={`${daysWorked.toLocaleString("fa-IR")} روز`}
-                icon={Calendar}
-                accent="sky"
-                hint="از ابتدای ماه"
-              />
-              <StatCard
-                title="درخواست مرخصی"
-                value={pendingRequests.toLocaleString("fa-IR")}
-                icon={Coffee}
-                accent="amber"
-                hint="در انتظار بررسی"
-              />
-            </div>
-
-            <div className="flex items-center justify-end my-2">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => navigateMonth("prev")}
-                    disabled={!canNavigate("prev")}
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                  <div className="text-sm font-medium min-w-32 text-center">
-                    {getJalaliMonthName(selectedMonth.jm)}{" "}
-                    {selectedMonth.jy.toLocaleString("fa-IR", {
-                      useGrouping: false,
-                    })}
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => navigateMonth("next")}
-                    disabled={!canNavigate("next")}
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            <WorkerCalendar
-              today={formatDateForDB(
-                getCurrentJalaliDate().jy,
-                getCurrentJalaliDate().jm,
-                getCurrentJalaliDate().jd
-              )}
-              currentDate={getCurrentJalaliDate()}
-              selectedMonth={selectedMonth}
-              totalHours={totalHours}
-              timeLogs={timeLogs}
-              dayOffRequests={dayOffRequests}
-              holidays={holidays}
-              isAdmin={true}
-              selectedWorkerId={user?.id || ""}
-              onDataChange={() => {
-                fetchTimeLogs();
-                fetchDayOffRequests();
-                fetchHolidays();
-              }}
+            <WorkerDashboard
+              title="پنل شخصی من"
+              showPasswordTab={false}
+              className="p-0"
             />
           </TabsContent>
 

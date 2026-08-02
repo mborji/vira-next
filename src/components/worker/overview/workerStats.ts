@@ -7,12 +7,7 @@ import {
   type JalaliDate,
 } from "@/utils/jalali";
 import { convertToPersianDigits, formatDecimalHoursToTime } from "@/lib/utils";
-
-/**
- * Contractual hours an employee owes for a single working day.
- * "ساعت موظفی" of a month = (working days of that month) × DAILY_REQUIRED_HOURS.
- */
-export const DAILY_REQUIRED_HOURS = 8;
+import { getMonthQuota } from "./monthlyWorkQuota";
 
 /** Hours credited for a single approved day off. */
 export const ACCEPTED_DAY_OFF_HOURS = 9;
@@ -167,10 +162,14 @@ export const getWorkingDayKeys = (
 export interface WorkerMonthStats {
   /** Hours actually credited for the month (work + approved leave + holidays). */
   workedHours: number;
-  /** Hours the employee is contractually required to deliver this month. */
+  /**
+   * Official monthly quota, read from the HR table in `monthlyWorkQuota.ts`.
+   * It is published by HR, not derived from `getWorkingDayKeys` — that helper
+   * drives absence and late arrivals, which use the company's own weekend rule.
+   */
   requiredHours: number;
-  /** Positive difference between credited and required hours. */
-  overtimeHours: number;
+  /** Official working days of the month — the «روزهای حضور» denominator. */
+  requiredWorkingDays: number;
   /** Distinct days with at least one time log. */
   attendanceDays: number;
   /** Working days whose clock-in was after {@link ALLOWED_ARRIVAL_TIME}. */
@@ -211,7 +210,10 @@ export const buildWorkerMonthStats = ({
       .map((request) => toDateKey(request.request_date))
   );
 
-  const requiredHours = workingDayKeys.length * DAILY_REQUIRED_HOURS;
+  // The monthly quota is published by HR, not derived from the calendar.
+  const quota = getMonthQuota(month.jm);
+  const requiredHours = quota?.requiredHours ?? 0;
+  const requiredWorkingDays = quota?.workingDays ?? 0;
 
   // A delay is a late clock-in on a working day — never on a Thursday,
   // a Friday or an official holiday.
@@ -227,7 +229,7 @@ export const buildWorkerMonthStats = ({
   return {
     workedHours,
     requiredHours,
-    overtimeHours: Math.max(0, workedHours - requiredHours),
+    requiredWorkingDays,
     attendanceDays: logsByDay.size,
     lateDays: delays.length,
     totalDelayMinutes: delays.reduce((sum, minutes) => sum + minutes, 0),

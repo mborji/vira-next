@@ -32,6 +32,11 @@ interface OverviewStatCardProps {
   /** Short unit rendered after the number, e.g. «ساعت» / «روز» / «بار». */
   unit?: string;
   tone?: StatTone;
+  /**
+   * Renders the value left-to-right. Needed for composite values such as
+   * `۸ / ۲۳`, which bidi would otherwise flip to `۲۳ / ۸` on an RTL page.
+   */
+  ltrValue?: boolean;
   /** When provided the card becomes a button that opens its detail view. */
   onClick?: () => void;
   className?: string;
@@ -48,6 +53,7 @@ export const OverviewStatCard = ({
   value,
   unit,
   tone = "slate",
+  ltrValue,
   onClick,
   className,
 }: OverviewStatCardProps) => {
@@ -68,8 +74,10 @@ export const OverviewStatCard = ({
       </div>
       <p className="mt-2.5 flex items-baseline gap-1.5">
         <span
+          dir={ltrValue ? "ltr" : undefined}
           className={cn(
             "persian-heading text-2xl font-bold leading-none [font-variant-numeric:tabular-nums]",
+            ltrValue && "inline-block",
             TONE_VALUE[tone]
           )}
         >

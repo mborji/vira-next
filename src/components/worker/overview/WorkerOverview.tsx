@@ -7,10 +7,15 @@ import { OverviewStatCard } from "./OverviewStatCard";
 import { ProfileSummaryCard, type OverviewProfile } from "./ProfileSummaryCard";
 import { WorkloadRatioCard } from "./WorkloadRatioCard";
 import type { MetricKey } from "./metricDetails";
-import { buildYearDeficit } from "./workDeficit";
+import {
+  buildYearBalance,
+  getBalanceLabel,
+  getBalanceTone,
+} from "./workBalance";
 import {
   buildWorkerMonthStats,
   formatCount,
+  formatDuration,
   formatHours,
   summarizeLeaveRequests,
   type OverviewDayOffRequest,
@@ -30,13 +35,18 @@ interface WorkerOverviewProps {
   /** Leave requests across the whole selected Jalali year. */
   yearlyDayOffRequests: OverviewDayOffRequest[];
   yearlyDayOffLoading?: boolean;
-  /** Time logs across the whole selected Jalali year — powers «کسری کار». */
+  /** Time logs across the whole selected Jalali year — powers «تراز کارکرد». */
   yearlyTimeLogs: OverviewTimeLog[];
   /** Today's Jalali date, used to pro-rate the running month's quota. */
   today: JalaliDate;
   holidays: OverviewHoliday[];
   /** Credited hours for the month, computed by the dashboard. */
   workedHours: number;
+  /**
+   * `false` when a manager is inspecting somebody else, which switches the
+   * first-person wording («پنل شخصی من» → «جزئیات کارکرد») to a neutral one.
+   */
+  isSelf?: boolean;
   /** When provided, every KPI tile becomes clickable and opens its details. */
   onMetricSelect?: (metric: MetricKey) => void;
 }
@@ -58,6 +68,7 @@ export const WorkerOverview = ({
   today,
   holidays,
   workedHours,
+  isSelf = true,
   onMetricSelect,
 }: WorkerOverviewProps) => {
   const stats = useMemo(
@@ -78,9 +89,10 @@ export const WorkerOverview = ({
     [yearlyDayOffRequests]
   );
 
-  const yearDeficit = useMemo(
+  /** Cumulative work-hour balance from فروردین up to the selected month. */
+  const yearBalance = useMemo(
     () =>
-      buildYearDeficit({
+      buildYearBalance({
         year: selectedMonth.jy,
         upToMonth: selectedMonth.jm,
         today,
@@ -89,6 +101,9 @@ export const WorkerOverview = ({
       }),
     [selectedMonth, today, yearlyTimeLogs, yearlyDayOffRequests]
   );
+
+  const balance = yearBalance.totalBalanceHours;
+  const balanceTone = getBalanceTone(balance);
 
   const yearLabel = convertToPersianDigits(String(selectedMonth.jy));
   const displayName = profile.fullName || profile.email || "کاربر";
@@ -111,25 +126,29 @@ export const WorkerOverview = ({
           tone: "slate",
         },
         {
-          metric: "overtime",
-          label: "اضافه‌کاری",
-          value: formatHours(stats.overtimeHours),
-          unit: "ساعت",
-          tone: "emerald",
-        },
-        {
-          metric: "deficit",
-          label: "کسری کار",
-          value: formatHours(yearDeficit.totalDeficitHours),
-          unit: "ساعت",
-          tone: "rose",
+          metric: "balance",
+          label: "تراز کارکرد",
+          // HH:MM so the card and its detail dialog can never disagree by a
+          // rounding minute the way a one-decimal figure would.
+          value:
+            balanceTone === "slate"
+              ? "۰۰:۰۰"
+              : formatDuration(Math.abs(balance)),
+          unit:
+            balanceTone === "slate"
+              ? "ساعت"
+              : `ساعت ${getBalanceLabel(balance)}`,
+          tone: balanceTone,
         },
         {
           metric: "attendance",
           label: "روزهای حضور",
-          value: formatCount(stats.attendanceDays),
+          value: `${formatCount(stats.attendanceDays)} / ${formatCount(
+            stats.requiredWorkingDays
+          )}`,
           unit: "روز",
           tone: "blue",
+          ltrValue: true,
         },
         {
           metric: "late",
@@ -146,13 +165,13 @@ export const WorkerOverview = ({
           tone: "rose",
         },
       ] as const,
-    [stats, yearDeficit]
+    [stats, balance, balanceTone]
   );
 
   return (
     <div className="space-y-5">
       <h2 className="persian-heading text-2xl font-bold text-foreground">
-        پنل شخصی — {displayName}
+        {isSelf ? "پنل شخصی" : "جزئیات کارکرد"} — {displayName}
       </h2>
 
       <div className="grid gap-5 lg:grid-cols-2">
@@ -172,6 +191,7 @@ export const WorkerOverview = ({
                 value={tile.value}
                 unit={tile.unit}
                 tone={tile.tone}
+                ltrValue={"ltrValue" in tile ? tile.ltrValue : undefined}
                 onClick={
                   onMetricSelect
                     ? () => onMetricSelect(tile.metric)
@@ -190,6 +210,7 @@ export const WorkerOverview = ({
           <LeaveHistoryCard
             requests={yearlyDayOffRequests}
             loading={yearlyDayOffLoading}
+            title={isSelf ? "سوابق مرخصی من" : "سوابق مرخصی"}
           />
         </div>
       </div>

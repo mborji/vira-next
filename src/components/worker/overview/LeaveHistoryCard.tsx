@@ -38,6 +38,8 @@ const STATUS_META: Record<
 interface LeaveHistoryCardProps {
   requests: OverviewDayOffRequest[];
   loading?: boolean;
+  /** Panel title — managers inspecting an employee get a neutral wording. */
+  title?: string;
   className?: string;
 }
 
@@ -45,6 +47,7 @@ interface LeaveHistoryCardProps {
 export const LeaveHistoryCard = ({
   requests,
   loading,
+  title = "سوابق مرخصی من",
   className,
 }: LeaveHistoryCardProps) => {
   const rows = [...requests].sort((a, b) =>
@@ -52,7 +55,7 @@ export const LeaveHistoryCard = ({
   );
 
   return (
-    <OverviewPanel title="سوابق مرخصی من" flush className={className}>
+    <OverviewPanel title={title} flush className={className}>
       {loading ? (
         <p className="persian-body py-6 text-center text-sm text-muted-foreground">
           در حال بارگذاری...
