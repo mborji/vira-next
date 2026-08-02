@@ -76,9 +76,13 @@ const Dashboard = () => {
     );
   }
 
+  // Managers reach the management panel, which also hosts their own personal
+  // dashboard; regular employees only ever see their own.
+  const isManager = profile.role === "admin" || profile.role === "super_admin";
+
   return (
     <div className="min-h-screen bg-background">
-      {profile.role === "admin" ? (
+      {isManager ? (
         <AdminDashboard profile={profile} />
       ) : profile.role === "worker" ? (
         <WorkerDashboard />

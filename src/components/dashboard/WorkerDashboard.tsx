@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,9 +15,20 @@ import {
   TrendingUp,
   ChevronLeft,
   ChevronRight,
-  Users,
 } from "lucide-react";
 import { WorkerCalendar } from "@/components/worker/WorkerCalendar";
+import { WorkerOverview } from "@/components/worker/overview/WorkerOverview";
+import { MetricDetailDialog } from "@/components/worker/overview/MetricDetailDialog";
+import { CLICKABLE_CARD_CLASS } from "@/components/worker/overview/OverviewStatCard";
+import type { OverviewProfile } from "@/components/worker/overview/ProfileSummaryCard";
+import type {
+  MetricDetailInput,
+  MetricKey,
+} from "@/components/worker/overview/metricDetails";
+import {
+  ACCEPTED_DAY_OFF_HOURS,
+  HOLIDAY_HOURS,
+} from "@/components/worker/overview/workerStats";
 import { useAuthStore } from "@/hooks/useAuthStore";
 import { apiClient } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
@@ -29,12 +40,10 @@ import {
   getCurrentJalaliDate,
   getJalaliMonthName,
 } from "@/utils/jalali";
-import { convertToPersianDigits, formatDecimalHoursToTime } from "@/lib/utils";
+import { cn, convertToPersianDigits, formatDecimalHoursToTime } from "@/lib/utils";
 import { useWindowSize } from "../windowWidth/useWindowSize";
 
 const MOBILE_WIDTH_THRESHOLD = 600;
-const ACCEPTED_DAY_OFF_HOURS = 9;
-const HOLIDAY_HOURS = 9;
 
 interface TimeLog {
   id: string;
@@ -60,61 +69,103 @@ interface Holiday {
   title?: string | null;
 }
 
-interface Worker {
-  id: string;
-  full_name: string;
-  email: string;
+export interface WorkerDashboardProps {
+  /**
+   * `user_id` of the employee to display — note this is `profiles.user_id`,
+   * the same column `time_logs.worker_id` points at. Defaults to the
+   * signed-in user, which is the regular employee's own panel.
+   */
+  workerId?: string;
+  /**
+   * Identity of that employee. Only needed when inspecting somebody else;
+   * otherwise the signed-in user's own profile is used.
+   */
+  workerProfile?: OverviewProfile;
+  /** Heading above the tabs. Defaults to «داشبورد کارمند». */
+  title?: string;
+  /**
+   * «تغییر رمز عبور» only ever changes the signed-in user's own password, so
+   * it is hidden while inspecting someone else and can be turned off by hosts
+   * (such as the admin dashboard) that already offer it elsewhere.
+   */
+  showPasswordTab?: boolean;
+  className?: string;
 }
 
-export const WorkerDashboard: React.FC = () => {
+/**
+ * The employee dashboard — «نمای کلی», «تقویم کاری» and «تغییر رمز عبور».
+ *
+ * The same component serves three callers:
+ *  - a regular employee looking at their own records,
+ *  - a manager's own personal panel inside the admin dashboard,
+ *  - a manager drilling into an employee from the management panel, in which
+ *    case everything is read-only (see `isInspecting`).
+ */
+export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
+  workerId,
+  workerProfile,
+  title,
+  showPasswordTab,
+  className,
+}) => {
   const { user } = useAuthStore();
   const [selectedMonth, setSelectedMonth] = useState(getCurrentJalaliDate());
   const [timeLogs, setTimeLogs] = useState<TimeLog[]>([]);
   const [dayOffRequests, setDayOffRequests] = useState<DayOffRequest[]>([]);
+  const [yearlyDayOffRequests, setYearlyDayOffRequests] = useState<
+    DayOffRequest[]
+  >([]);
+  const [yearlyDayOffLoading, setYearlyDayOffLoading] = useState(false);
+  const [yearlyTimeLogs, setYearlyTimeLogs] = useState<TimeLog[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [totalHours, setTotalHours] = useState(0);
-  const [workers, setWorkers] = useState<Worker[]>([]);
-  const [selectedWorkerId, setSelectedWorkerId] = useState<string>("");
+  /** Summary card whose detail dialog is open, `null` when nothing is open. */
+  const [activeMetric, setActiveMetric] = useState<MetricKey | null>(null);
 
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const currentDate = getCurrentJalaliDate();
 
+  /** Employee the panel is reading — the signed-in user unless told otherwise. */
+  const targetWorkerId = workerId || user?.id || "";
+  /** True when a manager is looking at somebody else's records. */
+  const isInspecting = Boolean(workerId && workerId !== user?.id);
+  /** Part-time employees are not credited holiday hours. */
+  const isPartTime = isInspecting
+    ? workerProfile?.workerType === "part_time"
+    : user?.worker_type === "part_time";
+
   const { width } = useWindowSize();
   const isTooNarrow = width !== undefined && width < MOBILE_WIDTH_THRESHOLD;
 
-  // Set default worker ID for non-admins
-  useEffect(() => {
-    if (user && !isAdmin && !selectedWorkerId) {
-      setSelectedWorkerId(user.id);
-    }
-  }, [user, isAdmin, selectedWorkerId]);
+  /** `startDate`/`endDate` of the selected month, plus the employee filter. */
+  const monthParams = useCallback(
+    () => ({
+      startDate: formatDateForDB(selectedMonth.jy, selectedMonth.jm, 1),
+      endDate: formatDateForDB(
+        selectedMonth.jy,
+        selectedMonth.jm,
+        getDaysInJalaliMonth(selectedMonth.jy, selectedMonth.jm)
+      ),
+      workerId: targetWorkerId,
+    }),
+    [selectedMonth, targetWorkerId]
+  );
+
+  /** The same, widened to the whole selected Jalali year. */
+  const yearParams = useCallback(() => {
+    const year = selectedMonth.jy;
+    return {
+      startDate: formatDateForDB(year, 1, 1),
+      endDate: formatDateForDB(year, 12, getDaysInJalaliMonth(year, 12)),
+      workerId: targetWorkerId,
+    };
+  }, [selectedMonth.jy, targetWorkerId]);
 
   const fetchTimeLogs = useCallback(async () => {
-    if (!user) return;
-
-    const startDate = formatDateForDB(selectedMonth.jy, selectedMonth.jm, 1);
-    const endDate = formatDateForDB(
-      selectedMonth.jy,
-      selectedMonth.jm,
-      getDaysInJalaliMonth(selectedMonth.jy, selectedMonth.jm)
-    );
+    if (!targetWorkerId) return;
 
     try {
-      const params: any = { startDate, endDate };
-
-      // For admins, use selected worker ID if available, otherwise get all workers' data
-      if (isAdmin) {
-        if (selectedWorkerId) {
-          params.workerId = selectedWorkerId;
-        }
-        // If no worker selected, don't add workerId to get all workers' data
-      } else {
-        // For workers, always use their own ID
-        params.workerId = user.id;
-      }
-
-      const data = await apiClient.getTimeLogs(params);
-
+      const data = await apiClient.getTimeLogs(monthParams());
       setTimeLogs(data || []);
     } catch (error) {
       toast({
@@ -123,51 +174,64 @@ export const WorkerDashboard: React.FC = () => {
         variant: "destructive",
       });
     }
-  }, [user, selectedMonth]);
+  }, [targetWorkerId, monthParams]);
 
   const fetchDayOffRequests = useCallback(async () => {
-    if (!user) return;
-
-    const startDate = formatDateForDB(selectedMonth.jy, selectedMonth.jm, 1);
-    const endDate = formatDateForDB(
-      selectedMonth.jy,
-      selectedMonth.jm,
-      getDaysInJalaliMonth(selectedMonth.jy, selectedMonth.jm)
-    );
+    if (!targetWorkerId) return;
 
     try {
-      const params: any = { startDate, endDate };
-
-      // For admins, use selected worker ID if available, otherwise get all workers' data
-      if (isAdmin) {
-        if (selectedWorkerId) {
-          params.workerId = selectedWorkerId;
-        }
-        // If no worker selected, don't add workerId to get all workers' data
-      } else {
-        // For workers, always use their own ID
-        params.workerId = user.id;
-      }
-
-      const data = await apiClient.getDayOffRequests(params);
-
-      const typedData = (data || []).map((request) => ({
-        ...request,
-        status: request.status as "pending" | "approved" | "rejected",
-      }));
-      setDayOffRequests(typedData);
+      const data = await apiClient.getDayOffRequests(monthParams());
+      setDayOffRequests(
+        (data || []).map((request) => ({
+          ...request,
+          status: request.status as "pending" | "approved" | "rejected",
+        }))
+      );
     } catch (error) {
-      // Handle error silently for now
+      setDayOffRequests([]);
     }
-  }, [user, selectedMonth, selectedWorkerId, isAdmin]);
+  }, [targetWorkerId, monthParams]);
+
+  /**
+   * Leave records for the whole selected Jalali year — feeds the overview's
+   * «خلاصه مرخصی‌ها» and «سوابق مرخصی من» blocks, which are not month-scoped.
+   */
+  const fetchYearlyDayOffRequests = useCallback(async () => {
+    if (!targetWorkerId) return;
+
+    setYearlyDayOffLoading(true);
+    try {
+      const data = await apiClient.getDayOffRequests(yearParams());
+      setYearlyDayOffRequests(
+        (data || []).map((request) => ({
+          ...request,
+          status: request.status as "pending" | "approved" | "rejected",
+        }))
+      );
+    } catch (error) {
+      setYearlyDayOffRequests([]);
+    } finally {
+      setYearlyDayOffLoading(false);
+    }
+  }, [targetWorkerId, yearParams]);
+
+  /**
+   * Time logs for the whole selected Jalali year — «تراز کارکرد» needs every
+   * month from فروردین up to the selected one, not just this month.
+   */
+  const fetchYearlyTimeLogs = useCallback(async () => {
+    if (!targetWorkerId) return;
+
+    try {
+      const data = await apiClient.getTimeLogs(yearParams());
+      setYearlyTimeLogs(data || []);
+    } catch (error) {
+      setYearlyTimeLogs([]);
+    }
+  }, [targetWorkerId, yearParams]);
 
   const fetchHolidays = useCallback(async () => {
-    const startDate = formatDateForDB(selectedMonth.jy, selectedMonth.jm, 1);
-    const endDate = formatDateForDB(
-      selectedMonth.jy,
-      selectedMonth.jm,
-      getDaysInJalaliMonth(selectedMonth.jy, selectedMonth.jm)
-    );
+    const { startDate, endDate } = monthParams();
 
     try {
       const data = await apiClient.getHolidays({ startDate, endDate });
@@ -175,7 +239,7 @@ export const WorkerDashboard: React.FC = () => {
     } catch (error) {
       setHolidays([]);
     }
-  }, [selectedMonth]);
+  }, [monthParams]);
 
   useEffect(() => {
     const workedHoursTotal = timeLogs.reduce((sum, log) => {
@@ -186,36 +250,35 @@ export const WorkerDashboard: React.FC = () => {
     const approvedDayOffHours =
       dayOffRequests.filter((request) => request.status === "approved").length *
       ACCEPTED_DAY_OFF_HOURS;
-    const holidayHours =
-      user?.worker_type === "part_time" ? 0 : holidays.length * HOLIDAY_HOURS;
+    const holidayHours = isPartTime ? 0 : holidays.length * HOLIDAY_HOURS;
     setTotalHours(workedHoursTotal + approvedDayOffHours + holidayHours);
-  }, [timeLogs, dayOffRequests, holidays, user?.worker_type]);
-
-  const fetchWorkers = useCallback(async () => {
-    if (!isAdmin) return;
-
-    try {
-      const data = await apiClient.getWorkers();
-      setWorkers(data || []);
-    } catch (error) {
-      toast({
-        title: "خطا",
-        description: "خطا در دریافت لیست کارمندان",
-        variant: "destructive",
-      });
-    }
-  }, [isAdmin]);
+  }, [timeLogs, dayOffRequests, holidays, isPartTime]);
 
   useEffect(() => {
-    if (user) {
-      fetchTimeLogs();
-      fetchDayOffRequests();
-      fetchHolidays();
-      if (isAdmin) {
-        fetchWorkers();
-      }
-    }
-  }, [user, fetchTimeLogs, fetchDayOffRequests, fetchHolidays, fetchWorkers, isAdmin]);
+    fetchTimeLogs();
+    fetchDayOffRequests();
+    fetchYearlyDayOffRequests();
+    fetchYearlyTimeLogs();
+    fetchHolidays();
+  }, [
+    fetchTimeLogs,
+    fetchDayOffRequests,
+    fetchYearlyDayOffRequests,
+    fetchYearlyTimeLogs,
+    fetchHolidays,
+  ]);
+
+  /** Identity shown in the overview panel. */
+  const displayedProfile = useMemo<OverviewProfile>(
+    () =>
+      workerProfile ?? {
+        fullName: user?.full_name,
+        email: user?.email,
+        role: user?.role,
+        workerType: user?.worker_type ?? null,
+      },
+    [workerProfile, user]
+  );
 
   const navigateMonth = (direction: "prev" | "next") => {
     const newMonth = { ...selectedMonth };
@@ -286,91 +349,116 @@ export const WorkerDashboard: React.FC = () => {
     (req) => req.status === "pending"
   ).length;
 
+  /** Live data every summary card's detail dialog is derived from. */
+  const metricDetailInput = useMemo<MetricDetailInput>(
+    () => ({
+      month: selectedMonth,
+      todayKey: todayDateStr,
+      today: currentDate,
+      timeLogs,
+      dayOffRequests,
+      holidays,
+      yearTimeLogs: yearlyTimeLogs,
+      yearDayOffRequests: yearlyDayOffRequests,
+      workedHours: totalHours,
+      countHolidayHours: !isPartTime,
+    }),
+    [
+      selectedMonth,
+      todayDateStr,
+      currentDate,
+      timeLogs,
+      dayOffRequests,
+      holidays,
+      yearlyTimeLogs,
+      yearlyDayOffRequests,
+      totalHours,
+      isPartTime,
+    ]
+  );
+
+  /** Makes a summary card behave like a button for mouse and keyboard alike. */
+  const metricCardProps = (metric: MetricKey, label: string) => ({
+    role: "button" as const,
+    tabIndex: 0,
+    title: `نمایش جزئیات ${label}`,
+    "aria-label": `نمایش جزئیات ${label}`,
+    onClick: () => setActiveMetric(metric),
+    onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        setActiveMetric(metric);
+      }
+    },
+    className: CLICKABLE_CARD_CLASS,
+  });
+
+  const withPasswordTab = showPasswordTab ?? !isInspecting;
+
   return (
-    <div className="space-y-6 p-6">
+    <div className={cn("space-y-6 p-6", className)}>
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-foreground">
-          {isAdmin ? "مدیریت کارمندان" : "داشبورد کارمند"}
+          {title ??
+            (isInspecting
+              ? displayedProfile.fullName || "جزئیات کارکرد"
+              : "داشبورد کارمند")}
         </h1>
         <div className="flex items-center gap-4">
           {isAdmin && (
-            <>
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-muted-foreground" />
-                <Select
-                  value={selectedWorkerId}
-                  onValueChange={(value) => setSelectedWorkerId(value)}
-                >
-                  <SelectTrigger className="w-48">
-                    <SelectValue placeholder="انتخاب کارمند" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">همه کارمندان</SelectItem>
-                    {workers.map((worker) => (
-                      <SelectItem key={worker.id} value={worker.id}>
-                        {worker.full_name || worker.email}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <Select
-                  value={selectedMonth.jy.toString()}
-                  onValueChange={(value) =>
-                    setSelectedMonth({ ...selectedMonth, jy: parseInt(value) })
-                  }
-                >
-                  <SelectTrigger className="w-24">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from(
-                      { length: 10 },
-                      (_, i) => currentDate.jy - 5 + i
-                    ).map((year) => (
-                      <SelectItem key={year} value={year.toString()}>
-                        {year}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={selectedMonth.jm.toString()}
-                  onValueChange={(value) =>
-                    setSelectedMonth({ ...selectedMonth, jm: parseInt(value) })
-                  }
-                >
-                  <SelectTrigger className="w-32">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[
-                      "فروردین",
-                      "اردیبهشت",
-                      "خرداد",
-                      "تیر",
-                      "مرداد",
-                      "شهریور",
-                      "مهر",
-                      "آبان",
-                      "آذر",
-                      "دی",
-                      "بهمن",
-                      "اسفند",
-                    ].map((month, index) => (
-                      <SelectItem
-                        key={index + 1}
-                        value={(index + 1).toString()}
-                      >
-                        {month}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </>
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <Select
+                value={selectedMonth.jy.toString()}
+                onValueChange={(value) =>
+                  setSelectedMonth({ ...selectedMonth, jy: parseInt(value) })
+                }
+              >
+                <SelectTrigger className="w-24">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from(
+                    { length: 10 },
+                    (_, i) => currentDate.jy - 5 + i
+                  ).map((year) => (
+                    <SelectItem key={year} value={year.toString()}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={selectedMonth.jm.toString()}
+                onValueChange={(value) =>
+                  setSelectedMonth({ ...selectedMonth, jm: parseInt(value) })
+                }
+              >
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[
+                    "فروردین",
+                    "اردیبهشت",
+                    "خرداد",
+                    "تیر",
+                    "مرداد",
+                    "شهریور",
+                    "مهر",
+                    "آبان",
+                    "آذر",
+                    "دی",
+                    "بهمن",
+                    "اسفند",
+                  ].map((month, index) => (
+                    <SelectItem key={index + 1} value={(index + 1).toString()}>
+                      {month}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
           <div className="flex items-center gap-2">
             <Button
@@ -398,7 +486,7 @@ export const WorkerDashboard: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-        <Card>
+        <Card {...metricCardProps("today", "ساعات امروز")}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">ساعات امروز</CardTitle>
             <Clock className="h-4 w-4 text-muted-foreground" />
@@ -413,7 +501,7 @@ export const WorkerDashboard: React.FC = () => {
             </p>
           </CardContent>
         </Card>
-        <Card>
+        <Card {...metricCardProps("worked", "مجموع این ماه")}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">مجموع این ماه</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
@@ -426,7 +514,7 @@ export const WorkerDashboard: React.FC = () => {
             <p className="text-xs text-muted-foreground">ساعات کاری ماه جاری</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card {...metricCardProps("attendance", "روزهای کاری")}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">روزهای کاری</CardTitle>
             <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -438,7 +526,7 @@ export const WorkerDashboard: React.FC = () => {
             <p className="text-xs text-muted-foreground">از ابتدای ماه</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card {...metricCardProps("pendingLeave", "درخواست مرخصی")}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">درخواست مرخصی</CardTitle>
             <Coffee className="h-4 w-4 text-muted-foreground" />
@@ -452,11 +540,39 @@ export const WorkerDashboard: React.FC = () => {
         </Card>
       </div>
 
-      <Tabs defaultValue="calendar" className="space-y-4" dir="rtl">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="calendar">تقویم کاری من</TabsTrigger>
-          <TabsTrigger value="settings">تغییر رمز عبور</TabsTrigger>
+      <Tabs defaultValue="overview" className="space-y-4" dir="rtl">
+        <TabsList
+          className={cn(
+            "grid w-full",
+            withPasswordTab ? "grid-cols-3" : "grid-cols-2"
+          )}
+        >
+          <TabsTrigger value="overview">نمای کلی</TabsTrigger>
+          <TabsTrigger value="calendar">
+            {isInspecting ? "تقویم کاری" : "تقویم کاری من"}
+          </TabsTrigger>
+          {withPasswordTab && (
+            <TabsTrigger value="settings">تغییر رمز عبور</TabsTrigger>
+          )}
         </TabsList>
+
+        <TabsContent value="overview">
+          <WorkerOverview
+            profile={displayedProfile}
+            selectedMonth={selectedMonth}
+            todayKey={todayDateStr}
+            today={currentDate}
+            timeLogs={timeLogs}
+            dayOffRequests={dayOffRequests}
+            yearlyDayOffRequests={yearlyDayOffRequests}
+            yearlyDayOffLoading={yearlyDayOffLoading}
+            yearlyTimeLogs={yearlyTimeLogs}
+            holidays={holidays}
+            workedHours={totalHours}
+            isSelf={!isInspecting}
+            onMetricSelect={setActiveMetric}
+          />
+        </TabsContent>
 
         <TabsContent value="calendar">
           <WorkerCalendar
@@ -468,19 +584,32 @@ export const WorkerDashboard: React.FC = () => {
             dayOffRequests={dayOffRequests}
             holidays={holidays}
             isAdmin={isAdmin}
-            selectedWorkerId={selectedWorkerId}
+            selectedWorkerId={targetWorkerId}
+            // Time logs and leave requests are always written for the
+            // signed-in user, so another employee's calendar is view-only.
+            readOnly={isInspecting}
             onDataChange={() => {
               fetchTimeLogs();
               fetchDayOffRequests();
+              fetchYearlyTimeLogs();
+              fetchYearlyDayOffRequests();
               fetchHolidays();
             }}
           />
         </TabsContent>
 
-        <TabsContent value="settings" className="space-y-6">
-          <ChangePassword />
-        </TabsContent>
+        {withPasswordTab && (
+          <TabsContent value="settings" className="space-y-6">
+            <ChangePassword />
+          </TabsContent>
+        )}
       </Tabs>
+
+      <MetricDetailDialog
+        metric={activeMetric}
+        onClose={() => setActiveMetric(null)}
+        data={metricDetailInput}
+      />
     </div>
   );
 };

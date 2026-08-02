@@ -19,6 +19,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Coffee,
+  Search,
+  Activity,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,12 +35,14 @@ import { BlogManagement } from "./BlogManagement";
 import { WorkerManagement } from "./WorkerManagement";
 import ServiceManagement from "./ServiceManagement";
 import ProjectManagement from "./ProjectManagement";
-import { WorkerCalendar } from "@/components/worker/WorkerCalendar";
+import { WorkerDashboard } from "@/components/dashboard/WorkerDashboard";
 import {
   formatDateForDB,
   getDaysInJalaliMonth,
   getCurrentJalaliDate,
   getJalaliMonthName,
+  gregorianToJalali,
+  formatJalaliDate,
 } from "@/utils/jalali";
 import { ChangePassword } from "@/components/auth/ChangePassword";
 import {
@@ -57,14 +61,37 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Label } from "../ui/label";
+import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "../ui/select";
-import { convertToPersianDigits, formatDecimalHoursToTime } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
+import {
+  cn,
+  convertToPersianDigits,
+  formatDecimalHoursToTime,
+} from "@/lib/utils";
 import { useWindowSize } from "../windowWidth/useWindowSize";
 
 const MOBILE_WIDTH_THRESHOLD = 600;
 const ACCEPTED_DAY_OFF_HOURS = 9;
 const HOLIDAY_HOURS = 9;
+
+/** First-letter initials from a full name, for avatars. */
+const getInitials = (name?: string | null): string => {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "؟";
+  if (parts.length === 1) return parts[0].charAt(0);
+  return `${parts[0].charAt(0)} ${parts[1].charAt(0)}`;
+};
+
+/** Format a Gregorian date string as a Persian (Jalali) date. */
+const formatActivityDate = (dateStr: string): string =>
+  convertToPersianDigits(formatJalaliDate(gregorianToJalali(new Date(dateStr))));
 
 interface Profile {
   id: string;
@@ -153,39 +180,16 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
   const [clientModalOpen, setClientModalOpen] = useState(false);
   const [newRole, setNewRole] = useState<string>("");
 
-  // Calendar state
-  const [selectedMonth, setSelectedMonth] = useState(getCurrentJalaliDate());
-  const [timeLogs, setTimeLogs] = useState<TimeLog[]>([]);
-  const [dayOffRequests, setDayOffRequests] = useState<DayOffRequest[]>([]);
-  const [holidays, setHolidays] = useState<Holiday[]>([]);
-  const [totalHours, setTotalHours] = useState(0);
-
-  const { width } = useWindowSize();
-  const isTooNarrow = width !== undefined && width < MOBILE_WIDTH_THRESHOLD;
+  // Users list: attendance-based last activity + client-side filters
+  const [lastActivityMap, setLastActivityMap] = useState<
+    Record<string, string>
+  >({});
+  const [userSearch, setUserSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
 
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const currentDate = getCurrentJalaliDate();
 
-  const todayDateStr = formatDateForDB(
-    currentDate.jy,
-    currentDate.jm,
-    currentDate.jd
-  );
-
-  const convertTimeToHours = (timeStr: string): number => {
-    if (!timeStr) return 0;
-    const [hours, minutes] = timeStr.split(":").map(Number);
-    return hours + (minutes || 0) / 60;
-  };
-
-  const hoursToday = convertTimeToHours(
-    timeLogs.find((log) => log.date.substring(0, 10) === todayDateStr)
-      ?.hours_worked || "0:00"
-  );
-  const daysWorked = new Set(timeLogs.map((log) => log.date)).size;
-  const pendingRequests = dayOffRequests.filter(
-    (req) => req.status === "pending"
-  ).length;
 
   const fetchSubmissions = async () => {
     try {
@@ -272,101 +276,11 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
     }
   };
 
-  const fetchTimeLogs = async () => {
-    if (!user) return;
-
-    const startDate = formatDateForDB(selectedMonth.jy, selectedMonth.jm, 1);
-    const endDate = formatDateForDB(
-      selectedMonth.jy,
-      selectedMonth.jm,
-      getDaysInJalaliMonth(selectedMonth.jy, selectedMonth.jm)
-    );
-
-    try {
-      const data = await apiClient.getTimeLogs({
-        startDate,
-        endDate,
-        workerId: user.id,
-      });
-
-      setTimeLogs(data || []);
-    } catch (error) {
-      toast({
-        title: "خطا",
-        description: "خطا در دریافت ساعات کاری",
-        variant: "destructive",
-      });
-    }
-  };
-
-  useEffect(() => {
-    const workedHoursTotal = timeLogs.reduce((sum, log) => {
-      const d = log.hours_worked_str || "0:00";
-      const [hours, minutes] = (d || "0:00").split(":").map(Number);
-      return sum + hours + (minutes || 0) / 60;
-    }, 0);
-    const approvedDayOffHours =
-      dayOffRequests.filter((request) => request.status === "approved").length *
-      ACCEPTED_DAY_OFF_HOURS;
-    const holidayHours =
-      user?.worker_type === "part_time" ? 0 : holidays.length * HOLIDAY_HOURS;
-    setTotalHours(workedHoursTotal + approvedDayOffHours + holidayHours);
-  }, [timeLogs, dayOffRequests, holidays, user?.worker_type]);
-
-  const fetchDayOffRequests = async () => {
-    if (!user) return;
-
-    const startDate = formatDateForDB(selectedMonth.jy, selectedMonth.jm, 1);
-    const endDate = formatDateForDB(
-      selectedMonth.jy,
-      selectedMonth.jm,
-      getDaysInJalaliMonth(selectedMonth.jy, selectedMonth.jm)
-    );
-
-    try {
-      const data = await apiClient.getDayOffRequests({
-        startDate,
-        endDate,
-        workerId: user.id,
-      });
-
-      const typedData = (data || []).map((request) => ({
-        ...request,
-        status: request.status as "pending" | "approved" | "rejected",
-      }));
-      setDayOffRequests(typedData);
-    } catch (error) {
-      // Handle error silently
-    }
-  };
-
-  const fetchHolidays = async () => {
-    const startDate = formatDateForDB(selectedMonth.jy, selectedMonth.jm, 1);
-    const endDate = formatDateForDB(
-      selectedMonth.jy,
-      selectedMonth.jm,
-      getDaysInJalaliMonth(selectedMonth.jy, selectedMonth.jm)
-    );
-    try {
-      const data = await apiClient.getHolidays({ startDate, endDate });
-      setHolidays(data || []);
-    } catch (error) {
-      setHolidays([]);
-    }
-  };
 
   useEffect(() => {
     fetchSubmissions();
     fetchDashboardStats();
   }, []);
-
-  useEffect(() => {
-    if (user) {
-      fetchTimeLogs();
-      fetchDayOffRequests();
-      fetchHolidays();
-    }
-  }, [user, selectedMonth]);
 
   const fetchClients = async () => {
     setClientsLoading(true);
@@ -389,51 +303,23 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
     }
   };
 
-  const navigateMonth = (direction: "prev" | "next") => {
-    const newMonth = { ...selectedMonth };
-    if (direction === "next") {
-      if (newMonth.jm === 12) {
-        newMonth.jy += 1;
-        newMonth.jm = 1;
-      } else {
-        newMonth.jm += 1;
-      }
-    } else {
-      if (newMonth.jm === 1) {
-        newMonth.jy -= 1;
-        newMonth.jm = 12;
-      } else {
-        newMonth.jm -= 1;
-      }
+  // Build a map of user_id -> most recent attendance/time-log date.
+  // Reuses the existing time-logs endpoint (no filters => all workers).
+  const fetchLastActivity = async () => {
+    try {
+      const logs = await apiClient.getTimeLogs();
+      const map: Record<string, string> = {};
+      (logs || []).forEach((log: { worker_id?: string; date?: string }) => {
+        if (!log.worker_id || !log.date) return;
+        const current = map[log.worker_id];
+        if (!current || new Date(log.date) > new Date(current)) {
+          map[log.worker_id] = log.date;
+        }
+      });
+      setLastActivityMap(map);
+    } catch (error) {
+      // Non-blocking: the column falls back to the "no activity" placeholder.
     }
-    setSelectedMonth(newMonth);
-  };
-
-  const canNavigate = (direction: "prev" | "next") => {
-    if (isTooNarrow) return false;
-
-    // Workers can navigate through the current year
-    const isSameMonth = (d1, d2) => d1.jy === d2.jy && d1.jm === d2.jm;
-
-    const isSelectedMonthBeforeCurrentYearStart = () => {
-      return selectedMonth.jy < currentDate.jy;
-    };
-
-    if (direction === "prev") {
-      // Workers can't go to previous years. They can go back to the first month of the current year.
-      // So, disable the 'prev' button if the selected month is the first month of the current year.
-      return (
-        !isSelectedMonthBeforeCurrentYearStart() &&
-        !(selectedMonth.jy === currentDate.jy && selectedMonth.jm === 1)
-      );
-    }
-
-    if (direction === "next") {
-      // Workers cannot go to the next month if they are already in the current month.
-      return !isSameMonth(selectedMonth, currentDate);
-    }
-
-    return false;
   };
 
   const handleLogout = async () => {
@@ -487,6 +373,18 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
       return new Date(c.last_submission) > lastWeek;
     }).length,
   };
+
+  // Client-side view filters for the users list (no API/logic changes).
+  const normalizedUserQuery = userSearch.trim().toLowerCase();
+  const filteredClients = clients.filter((client) => {
+    const matchesRole = roleFilter === "all" || client.role === roleFilter;
+    const matchesSearch =
+      !normalizedUserQuery ||
+      (client.full_name || "").toLowerCase().includes(normalizedUserQuery) ||
+      (client.email || "").toLowerCase().includes(normalizedUserQuery);
+    return matchesRole && matchesSearch;
+  });
+  const isUserFilterActive = normalizedUserQuery !== "" || roleFilter !== "all";
 
   const openSubmissionModal = (submission: ContactSubmission) => {
     setSelectedSubmission(submission);
@@ -619,7 +517,10 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
             <TabsTrigger
               value="users"
               className="persian-body"
-              onClick={fetchClients}
+              onClick={() => {
+                fetchClients();
+                fetchLastActivity();
+              }}
             >
               کاربران
             </TabsTrigger>
@@ -627,7 +528,7 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
               کارمندان
             </TabsTrigger>
             <TabsTrigger value="calendar" className="persian-body">
-              تقویم من
+              پنل شخصی من
             </TabsTrigger>
             <TabsTrigger value="blogs" className="persian-body">
               مقالات
@@ -795,37 +696,97 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
 
               {/* Users Table */}
               <Card>
-                <div className="p-6">
-                  <h2 className="persian-heading text-xl font-semibold text-foreground mb-6">
-                    لیست کاربران سیستم
-                  </h2>
+                <div className="p-6 space-y-5">
+                  {/* Header: title + search + role filter */}
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h2 className="persian-heading text-xl font-semibold text-foreground">
+                        لیست کاربران سیستم
+                      </h2>
+                      <p className="persian-body mt-1 text-sm text-muted-foreground">
+                        {clientStats.total.toLocaleString("fa-IR")} کاربر ثبت‌شده
+                        {isUserFilterActive
+                          ? ` · ${filteredClients.length.toLocaleString(
+                              "fa-IR"
+                            )} نتیجه`
+                          : ""}
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <div className="relative w-full sm:w-64">
+                        <Search className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          value={userSearch}
+                          onChange={(e) => setUserSearch(e.target.value)}
+                          placeholder="جستجوی نام یا ایمیل..."
+                          className="persian-body pe-9"
+                          aria-label="جستجوی کاربر"
+                        />
+                      </div>
+                      <Select value={roleFilter} onValueChange={setRoleFilter}>
+                        <SelectTrigger className="persian-body w-full sm:w-40">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">همه نقش‌ها</SelectItem>
+                          <SelectItem value="admin">مدیر</SelectItem>
+                          <SelectItem value="worker">کارمند</SelectItem>
+                          <SelectItem value="client">کاربر</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
 
                   {clientsLoading ? (
-                    <div className="text-center py-12">
-                      <p className="persian-body text-muted-foreground">
+                    <div className="flex flex-col items-center justify-center py-16">
+                      <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted border-t-primary" />
+                      <p className="persian-body mt-4 text-muted-foreground">
                         در حال بارگذاری...
                       </p>
                     </div>
                   ) : clients.length === 0 ? (
-                    <div className="text-center py-12">
-                      <UserX className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="persian-body text-muted-foreground">
-                        هنوز کاربری ثبت نام نکرده است
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
+                        <UserX className="h-7 w-7 text-muted-foreground" />
+                      </div>
+                      <p className="persian-heading mt-4 font-medium text-foreground">
+                        هنوز کاربری ثبت‌نام نکرده است
+                      </p>
+                      <p className="persian-body mt-1 text-sm text-muted-foreground">
+                        کاربران جدید پس از ثبت‌نام اینجا نمایش داده می‌شوند
                       </p>
                     </div>
+                  ) : filteredClients.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
+                        <Search className="h-7 w-7 text-muted-foreground" />
+                      </div>
+                      <p className="persian-heading mt-4 font-medium text-foreground">
+                        نتیجه‌ای یافت نشد
+                      </p>
+                      <p className="persian-body mt-1 text-sm text-muted-foreground">
+                        عبارت جستجو یا فیلتر نقش را تغییر دهید
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="persian-body mt-4"
+                        onClick={() => {
+                          setUserSearch("");
+                          setRoleFilter("all");
+                        }}
+                      >
+                        پاک کردن فیلترها
+                      </Button>
+                    </div>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto rounded-xl border border-border">
                       <Table>
                         <TableHeader>
-                          <TableRow>
-                            <TableHead className="persian-body">نام</TableHead>
-                            <TableHead className="persian-body">
-                              ایمیل
-                            </TableHead>
+                          <TableRow className="bg-muted/50 hover:bg-muted/50">
+                            <TableHead className="persian-body">کاربر</TableHead>
                             <TableHead className="persian-body">نقش</TableHead>
-                            <TableHead className="persian-body">
-                              وضعیت
-                            </TableHead>
+                            <TableHead className="persian-body">وضعیت</TableHead>
                             <TableHead className="persian-body">
                               تعداد درخواست
                             </TableHead>
@@ -835,82 +796,109 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
                             <TableHead className="persian-body">
                               تاریخ عضویت
                             </TableHead>
-                            <TableHead className="persian-body">
+                            <TableHead className="persian-body text-left">
                               عملیات
                             </TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {clients.map((client) => (
-                            <TableRow key={client.id}>
-                              <TableCell className="persian-body font-medium">
-                                {client.full_name || "بدون نام"}
-                              </TableCell>
-                              <TableCell className="persian-body">
-                                <div className="flex items-center gap-2">
-                                  <Mail className="w-4 h-4 text-muted-foreground" />
-                                  <span className="ltr-content text-sm">
-                                    {client.email || "بدون ایمیل"}
-                                  </span>
-                                </div>
-                              </TableCell>
-                              <TableCell>{getRoleBadge(client.role)}</TableCell>
-                              <TableCell className="persian-body">
-                                <div className="flex items-center gap-2">
-                                  <Switch
-                                    checked={client.is_active}
-                                    onCheckedChange={(checked) =>
-                                      updateUserStatus(client, checked)
-                                    }
-                                    aria-label={
-                                      client.is_active
-                                        ? "غیرفعال کردن کاربر"
-                                        : "فعال کردن کاربر"
-                                    }
-                                  />
-                                  <span
-                                    className={
-                                      client.is_active
-                                        ? "text-green-600"
-                                        : "text-orange-600"
-                                    }
+                          {filteredClients.map((client) => {
+                            const lastActivity = lastActivityMap[client.user_id];
+                            return (
+                              <TableRow
+                                key={client.id}
+                                className="transition-colors hover:bg-muted/40"
+                              >
+                                <TableCell>
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                                      {getInitials(client.full_name)}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="persian-body truncate font-semibold text-foreground">
+                                        {client.full_name || "بدون نام"}
+                                      </p>
+                                      <p
+                                        dir="ltr"
+                                        className="truncate text-right text-xs text-muted-foreground"
+                                      >
+                                        {client.email || "بدون ایمیل"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>{getRoleBadge(client.role)}</TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    <Switch
+                                      checked={client.is_active}
+                                      onCheckedChange={(checked) =>
+                                        updateUserStatus(client, checked)
+                                      }
+                                      aria-label={
+                                        client.is_active
+                                          ? "غیرفعال کردن کاربر"
+                                          : "فعال کردن کاربر"
+                                      }
+                                    />
+                                    <span
+                                      className={cn(
+                                        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
+                                        client.is_active
+                                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                          : "bg-orange-500/10 text-orange-600 dark:text-orange-400"
+                                      )}
+                                    >
+                                      <span
+                                        className={cn(
+                                          "h-1.5 w-1.5 rounded-full",
+                                          client.is_active
+                                            ? "bg-emerald-500"
+                                            : "bg-orange-500"
+                                        )}
+                                      />
+                                      {client.is_active ? "فعال" : "غیرفعال"}
+                                    </span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="persian-body">
+                                  <div className="flex items-center gap-2">
+                                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                                    {client.submission_count.toLocaleString(
+                                      "fa-IR"
+                                    ) || "۰"}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="persian-body">
+                                  {lastActivity ? (
+                                    <span className="inline-flex items-center gap-1.5 text-sm text-foreground">
+                                      <Activity className="h-3.5 w-3.5 text-emerald-500" />
+                                      {formatActivityDate(lastActivity)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-sm text-muted-foreground">
+                                      بدون فعالیت
+                                    </span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="persian-body text-sm text-muted-foreground">
+                                  {new Date(
+                                    client.created_at
+                                  ).toLocaleDateString("fa-IR")}
+                                </TableCell>
+                                <TableCell className="text-left">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => openClientModal(client)}
                                   >
-                                    {client.is_active ? "فعال" : "غیرفعال"}
-                                  </span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="persian-body">
-                                <div className="flex items-center gap-2">
-                                  <MessageSquare className="w-4 h-4 text-muted-foreground" />
-                                  {client.submission_count.toLocaleString(
-                                    "fa-IR"
-                                  ) || "۰"}
-                                </div>
-                              </TableCell>
-                              <TableCell className="persian-body text-sm text-muted-foreground">
-                                {client.last_submission
-                                  ? new Date(
-                                      client.last_submission
-                                    ).toLocaleDateString("fa-IR")
-                                  : "هرگز"}
-                              </TableCell>
-                              <TableCell className="persian-body text-sm text-muted-foreground">
-                                {new Date(client.created_at).toLocaleDateString(
-                                  "fa-IR"
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => openClientModal(client)}
-                                >
-                                  <Eye className="w-4 h-4 ml-1" />
-                                  مشاهده
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          ))}
+                                    <Eye className="w-4 h-4 ml-1" />
+                                    مشاهده
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
                         </TableBody>
                       </Table>
                     </div>
@@ -924,92 +912,17 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
             <WorkerManagement />
           </TabsContent>
 
+          {/*
+            The manager's own personal panel — the very same dashboard a
+            regular employee sees, scoped to the signed-in user. Reusing it
+            keeps attendance, balance, delay and leave logic in one place.
+            The password tab is hidden because this dashboard already has one.
+          */}
           <TabsContent value="calendar">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-              <StatCard
-                title="ساعات امروز"
-                value={`${convertToPersianDigits(
-                  formatDecimalHoursToTime(hoursToday)
-                )} ساعت`}
-                icon={Clock}
-                accent="teal"
-                hint={
-                  hoursToday > 0 ? "ثبت شده برای امروز" : "برای امروز ثبت نشده"
-                }
-              />
-              <StatCard
-                title="مجموع این ماه"
-                value={`${convertToPersianDigits(
-                  formatDecimalHoursToTime(totalHours)
-                )} ساعت`}
-                icon={TrendingUp}
-                accent="violet"
-                hint="ساعات کاری ماه جاری"
-              />
-              <StatCard
-                title="روزهای کاری"
-                value={`${daysWorked.toLocaleString("fa-IR")} روز`}
-                icon={Calendar}
-                accent="sky"
-                hint="از ابتدای ماه"
-              />
-              <StatCard
-                title="درخواست مرخصی"
-                value={pendingRequests.toLocaleString("fa-IR")}
-                icon={Coffee}
-                accent="amber"
-                hint="در انتظار بررسی"
-              />
-            </div>
-
-            <div className="flex items-center justify-end my-2">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => navigateMonth("prev")}
-                    disabled={!canNavigate("prev")}
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                  <div className="text-sm font-medium min-w-32 text-center">
-                    {getJalaliMonthName(selectedMonth.jm)}{" "}
-                    {selectedMonth.jy.toLocaleString("fa-IR", {
-                      useGrouping: false,
-                    })}
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => navigateMonth("next")}
-                    disabled={!canNavigate("next")}
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            <WorkerCalendar
-              today={formatDateForDB(
-                getCurrentJalaliDate().jy,
-                getCurrentJalaliDate().jm,
-                getCurrentJalaliDate().jd
-              )}
-              currentDate={getCurrentJalaliDate()}
-              selectedMonth={selectedMonth}
-              totalHours={totalHours}
-              timeLogs={timeLogs}
-              dayOffRequests={dayOffRequests}
-              holidays={holidays}
-              isAdmin={true}
-              selectedWorkerId={user?.id || ""}
-              onDataChange={() => {
-                fetchTimeLogs();
-                fetchDayOffRequests();
-                fetchHolidays();
-              }}
+            <WorkerDashboard
+              title="پنل شخصی من"
+              showPasswordTab={false}
+              className="p-0"
             />
           </TabsContent>
 

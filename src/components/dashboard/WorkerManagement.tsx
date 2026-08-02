@@ -32,6 +32,8 @@ import {
   ChevronRight,
   Trash2,
   ClipboardList,
+  ArrowRight,
+  Eye,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -43,6 +45,8 @@ import {
 } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { apiClient } from "@/lib/api";
+import { WorkerDashboard } from "@/components/dashboard/WorkerDashboard";
+import type { OverviewProfile } from "@/components/worker/overview/ProfileSummaryCard";
 import {
   getCurrentJalaliDate,
   getJalaliMonthName,
@@ -151,6 +155,11 @@ export const WorkerManagement: React.FC = () => {
   }));
   const [holidayTitle, setHolidayTitle] = useState("");
   const [editingHolidayId, setEditingHolidayId] = useState<string | null>(null);
+  /**
+   * Employee whose full personal dashboard is open. `null` shows the
+   * management panel itself.
+   */
+  const [inspectedWorker, setInspectedWorker] = useState<Worker | null>(null);
 
   const currentDate = getCurrentJalaliDate();
 
@@ -620,6 +629,39 @@ export const WorkerManagement: React.FC = () => {
     (req) => req.status === "pending"
   );
 
+  // Drill-down: reuse the employee dashboard itself rather than
+  // re-implementing attendance, balance, delay and leave views here.
+  if (inspectedWorker) {
+    const profile: OverviewProfile = {
+      fullName: inspectedWorker.full_name,
+      email: inspectedWorker.email,
+      workerType: inspectedWorker.worker_type ?? null,
+    };
+
+    return (
+      <div className="space-y-4">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setInspectedWorker(null)}
+        >
+          <ArrowRight className="ms-2 h-4 w-4" />
+          بازگشت به مدیریت کارمندان
+        </Button>
+
+        <Card className="overflow-hidden">
+          <WorkerDashboard
+            workerId={inspectedWorker.user_id}
+            workerProfile={profile}
+            title={`جزئیات کارکرد — ${
+              inspectedWorker.full_name || inspectedWorker.email
+            }`}
+          />
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -863,6 +905,16 @@ export const WorkerManagement: React.FC = () => {
                         </div>
 
                         <div className="mt-4 border-t border-border/60 pt-3">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mb-3 w-full"
+                            disabled={!worker}
+                            onClick={() => worker && setInspectedWorker(worker)}
+                          >
+                            <Eye className="ms-2 h-4 w-4" />
+                            مشاهده جزئیات کارکرد
+                          </Button>
                           <Label className="mb-1.5 block text-xs text-muted-foreground">
                             نوع همکاری
                           </Label>
