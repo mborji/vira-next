@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { JalaliDate } from "@/utils/jalali";
 import { convertToPersianDigits } from "@/lib/utils";
 import { LeaveHistoryCard } from "./LeaveHistoryCard";
-import { LeaveSummaryCard } from "./LeaveSummaryCard";
+import { LeaveSummaryCard, type LeaveBalance } from "./LeaveSummaryCard";
 import { OverviewStatCard } from "./OverviewStatCard";
 import { ProfileSummaryCard, type OverviewProfile } from "./ProfileSummaryCard";
 import { WorkloadRatioCard } from "./WorkloadRatioCard";
@@ -35,8 +35,13 @@ interface WorkerOverviewProps {
   /** Leave requests across the whole selected Jalali year. */
   yearlyDayOffRequests: OverviewDayOffRequest[];
   yearlyDayOffLoading?: boolean;
+  /** Yearly leave entitlement from the server, for «مانده مرخصی». */
+  leaveBalance?: LeaveBalance | null;
+  leaveBalanceLoading?: boolean;
   /** Time logs across the whole selected Jalali year — powers «تراز کارکرد». */
   yearlyTimeLogs: OverviewTimeLog[];
+  /** Official holidays across the whole selected Jalali year. */
+  yearlyHolidays: OverviewHoliday[];
   /** Today's Jalali date, used to pro-rate the running month's quota. */
   today: JalaliDate;
   holidays: OverviewHoliday[];
@@ -64,7 +69,10 @@ export const WorkerOverview = ({
   dayOffRequests,
   yearlyDayOffRequests,
   yearlyDayOffLoading,
+  leaveBalance,
+  leaveBalanceLoading,
   yearlyTimeLogs,
+  yearlyHolidays,
   today,
   holidays,
   workedHours,
@@ -98,8 +106,9 @@ export const WorkerOverview = ({
         today,
         yearTimeLogs: yearlyTimeLogs,
         yearDayOffRequests: yearlyDayOffRequests,
+        yearHolidays: yearlyHolidays,
       }),
-    [selectedMonth, today, yearlyTimeLogs, yearlyDayOffRequests]
+    [selectedMonth, today, yearlyTimeLogs, yearlyDayOffRequests, yearlyHolidays]
   );
 
   const balance = yearBalance.totalBalanceHours;
@@ -178,7 +187,12 @@ export const WorkerOverview = ({
         {/* start (right in RTL): identity + leave summary */}
         <div className="space-y-5">
           <ProfileSummaryCard profile={profile} />
-          <LeaveSummaryCard summary={leaveSummary} yearLabel={yearLabel} />
+          <LeaveSummaryCard
+            summary={leaveSummary}
+            balance={leaveBalance}
+            balanceLoading={leaveBalanceLoading}
+            yearLabel={yearLabel}
+          />
         </div>
 
         {/* end (left in RTL): KPIs, workload ratio, leave history */}

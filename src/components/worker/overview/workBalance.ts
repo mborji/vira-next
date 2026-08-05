@@ -7,12 +7,15 @@ import {
 import {
   getMonthLabel,
   getMonthQuota,
-  getQuotaDailyHours,
+
 } from "./monthlyWorkQuota";
 import {
+  ACCEPTED_DAY_OFF_HOURS,
+  HOLIDAY_HOURS,
   loggedHoursOf,
   toDateKey,
   type OverviewDayOffRequest,
+  type OverviewHoliday,
   type OverviewTimeLog,
 } from "./workerStats";
 
@@ -52,9 +55,17 @@ export interface MonthBalance {
   requiredHours: number;
   /** Hours from the employee's own time logs. */
   loggedHours: number;
-  /** Approved days off, credited at the month's daily quota rate. */
+  /**
+   * Approved days off, credited at {@link ACCEPTED_DAY_OFF_HOURS} per day —
+   * the same full-day value the rest of the dashboard uses.
+   */
   leaveHours: number;
-  /** `loggedHours + leaveHours` — what the month is credited with. */
+  /**
+   * Registered official holidays, credited at {@link HOLIDAY_HOURS} per day —
+   * a holiday is a paid day and counts exactly like worked hours.
+   */
+  holidayHours: number;
+  /** `loggedHours + leaveHours + holidayHours` — the month's credited hours. */
   workedHours: number;
   /** `workedHours − requiredHours`; negative is a deficit, positive overtime. */
   balanceHours: number;
@@ -81,6 +92,13 @@ interface BuildYearBalanceInput {
   yearTimeLogs: OverviewTimeLog[];
   /** Every day-off request of the selected Jalali year. */
   yearDayOffRequests: OverviewDayOffRequest[];
+  /** Every official holiday of the selected Jalali year. */
+  yearHolidays: OverviewHoliday[];
+  /**
+   * `false` for part-time employees, who are not credited holiday hours —
+   * mirrors the same rule the dashboard's «کارکرد ماه جاری» card applies.
+   */
+  countHolidayHours?: boolean;
 }
 
 /** Share of a month that has already elapsed, measured in non-Friday days. */
@@ -102,10 +120,20 @@ const elapsedShareOfMonth = (jy: number, jm: number, jd: number): number => {
 /**
  * Month-by-month work-hour balance of a Jalali year.
  *
- * Required hours and required working days come from the HR quota table
- * (`monthlyWorkQuota.ts`). Because that table already removes official
- * holidays, holiday hours are *not* credited here — only real time logs plus
- * approved leave count towards the quota.
+ *   effective hours = logged + approved leave + official holidays
+ *   balance         = effective hours − the month's required hours
+ *
+ * Required hours come from the HR quota table (`monthlyWorkQuota.ts`). The
+ * effective hours use the **same definition as the dashboard's
+ * «کارکرد ماه جاری» card**, so the two figures can never disagree:
+ *
+ *  1. hours actually logged,
+ *  2. every approved day off, at ACCEPTED_DAY_OFF_HOURS each,
+ *  3. every registered official holiday, at HOLIDAY_HOURS each
+ *     (skipped for part-time employees, exactly as that card does).
+ *
+ * A paid day is a paid day: leave and holidays are credited in full and can
+ * never leave a deficit behind.
  *
  * The running month is charged pro rata (by elapsed non-Friday days) so a
  * half-finished month does not read as a large deficit.
@@ -116,6 +144,8 @@ export const buildYearBalance = ({
   today,
   yearTimeLogs,
   yearDayOffRequests,
+  yearHolidays,
+  countHolidayHours = true,
 }: BuildYearBalanceInput): YearBalance => {
   const lastMonth =
     year > today.jy ? 0 : Math.min(upToMonth, year < today.jy ? 12 : today.jm);
@@ -146,6 +176,13 @@ export const buildYearBalance = ({
       leaveDaysByMonth.set(jm, (leaveDaysByMonth.get(jm) || 0) + 1);
     });
 
+  const holidayDaysByMonth = new Map<number, number>();
+  yearHolidays.forEach((holiday) => {
+    const jm = monthKeyIndex.get(toDateKey(holiday.holiday_date));
+    if (!jm) return;
+    holidayDaysByMonth.set(jm, (holidayDaysByMonth.get(jm) || 0) + 1);
+  });
+
   const months: MonthBalance[] = [];
 
   for (let jm = 1; jm <= lastMonth; jm += 1) {
@@ -161,8 +198,15 @@ export const buildYearBalance = ({
       : quota.workingDays;
 
     const loggedHours = loggedByMonth.get(jm) || 0;
-    const leaveHours = (leaveDaysByMonth.get(jm) || 0) * getQuotaDailyHours(jm);
-    const workedHours = loggedHours + leaveHours;
+
+    // Paid days count as worked hours, exactly like the «کارکرد ماه جاری» card.
+    const leaveHours =
+      (leaveDaysByMonth.get(jm) || 0) * ACCEPTED_DAY_OFF_HOURS;
+    const holidayHours = countHolidayHours
+      ? (holidayDaysByMonth.get(jm) || 0) * HOLIDAY_HOURS
+      : 0;
+
+    const workedHours = loggedHours + leaveHours + holidayHours;
 
     months.push({
       month: jm,
@@ -173,6 +217,7 @@ export const buildYearBalance = ({
       requiredHours,
       loggedHours,
       leaveHours,
+      holidayHours,
       workedHours,
       balanceHours: workedHours - requiredHours,
       inProgress,

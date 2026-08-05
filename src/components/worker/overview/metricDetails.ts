@@ -1,9 +1,9 @@
 import type { JalaliDate } from "@/utils/jalali";
 import type { StatTone } from "./OverviewStatCard";
 import {
+  COMPANY_DAILY_HOURS,
   getMonthLabel,
   getMonthQuota,
-  getQuotaDailyHours,
 } from "./monthlyWorkQuota";
 import {
   buildYearBalance,
@@ -22,8 +22,10 @@ import {
   formatJalaliFromDbDate,
   formatMinutesAsClock,
   formatMinutesLabel,
+  countNonFridayHolidays,
   getArrivalMinutes,
   getDayName,
+  getDepartureMinutes,
   getDelayMinutes,
   getWorkingDayKeys,
   groupTimeLogsByDay,
@@ -100,6 +102,8 @@ export interface MetricDetailInput {
   yearTimeLogs: OverviewTimeLog[];
   /** Day-off requests of the whole selected Jalali year. */
   yearDayOffRequests: OverviewDayOffRequest[];
+  /** Official holidays of the whole selected Jalali year. */
+  yearHolidays: OverviewHoliday[];
   /** Credited hours for the month, as computed by the dashboard. */
   workedHours: number;
   /** Part-time employees are not credited holiday hours. */
@@ -168,6 +172,7 @@ export const buildMetricDetail = (
     holidays,
     yearTimeLogs,
     yearDayOffRequests,
+    yearHolidays,
     workedHours,
     countHolidayHours,
   } = input;
@@ -353,43 +358,25 @@ export const buildMetricDetail = (
     case "required": {
       const quota = getMonthQuota(month.jm);
       const monthName = getMonthLabel(month.jm);
+      // Counted from the holiday records an admin registered for this month —
+      // never from a built-in calendar or a default holiday list.
+      const officialHolidays = countNonFridayHolidays(holidays);
 
       return {
         key,
         title: "ساعت موظفی",
-        description: `ساعت موظفی هر ماه از جدول رسمی منابع انسانی خوانده می‌شود: روزهای ماه منهای جمعه‌ها و تعطیلات رسمی، ضربدر سهم ساعتی هر روز کاری (هفته‌ی کاری ${formatCount(
-          44
-        )} ساعته).`,
+        description: `ساعت موظفی طبق قانون داخلی شرکت تعیین می‌شود: تعداد روزهای کاری تعریف‌شده شرکت ضربدر ${formatCount(
+          COMPANY_DAILY_HOURS
+        )} ساعت. این عدد از تعداد روزهای تقویمی، جمعه‌ها یا تعطیلات رسمی ساخته نمی‌شود. «تعطیل رسمی غیرجمعه» فقط از رکوردهایی شمرده می‌شود که مدیر در تقویم ثبت کرده و روزشان جمعه نیست؛ این عدد صرفاً اطلاعاتی است و ساعت موظفی را تغییر نمی‌دهد.`,
         headline: `${formatHours(stats.requiredHours)} ساعت`,
         headlineTone: "slate",
         columns: [{ label: "شرح" }, { label: "مقدار" }],
         rows: quota
           ? [
               {
-                id: "days",
+                id: "working-days",
                 cells: [
-                  text(`روزهای ${monthName}`),
-                  text(`${formatCount(quota.daysInMonth)} روز`),
-                ],
-              },
-              {
-                id: "fridays",
-                cells: [
-                  text("تعداد جمعه", "muted"),
-                  text(`${formatCount(quota.fridays)} روز`, "rose"),
-                ],
-              },
-              {
-                id: "holidays",
-                cells: [
-                  text("تعطیل رسمی غیرجمعه", "muted"),
-                  text(`${formatCount(quota.otherHolidays)} روز`, "rose"),
-                ],
-              },
-              {
-                id: "working",
-                cells: [
-                  text("تعداد روز کاری"),
+                  text(`روزهای کاری شرکت در ${monthName}`),
                   text(`${formatCount(quota.workingDays)} روز`, "teal"),
                 ],
               },
@@ -397,16 +384,27 @@ export const buildMetricDetail = (
                 id: "daily",
                 cells: [
                   text("سهم هر روز کاری", "muted"),
-                  text(formatDuration(getQuotaDailyHours(month.jm))),
+                  text(formatDuration(COMPANY_DAILY_HOURS)),
+                ],
+              },
+              {
+                id: "holidays",
+                cells: [
+                  text("تعطیل رسمی غیرجمعه (ثبت‌شده در تقویم)", "muted"),
+                  officialHolidays > 0
+                    ? text(`${formatCount(officialHolidays)} روز`, "rose")
+                    : text("—", "muted"),
                 ],
               },
             ]
           : [],
         footer: {
-          label: "جمع ساعت موظفی ماه",
+          label: `جمع ساعت موظفی ماه (${formatCount(
+            quota?.workingDays ?? 0
+          )} × ${formatCount(COMPANY_DAILY_HOURS)})`,
           value: formatDuration(stats.requiredHours),
         },
-        emptyText: "برای این ماه ساعت موظفی رسمی ثبت نشده است.",
+        emptyText: "برای این ماه روز کاری تعریف نشده است.",
       };
     }
 
@@ -420,6 +418,8 @@ export const buildMetricDetail = (
             cells: [
               dateCell(dateKey),
               badge("کارکرد", "teal"),
+              text(formatMinutesAsClock(getArrivalMinutes(logs))),
+              text(formatMinutesAsClock(getDepartureMinutes(logs))),
               text(formatDuration(hoursOf(dateKey))),
               descriptionCell(logs),
             ],
@@ -435,6 +435,8 @@ export const buildMetricDetail = (
               cells: [
                 dateCell(dateKey),
                 badge("مرخصی تأیید شده", "emerald"),
+                text("—", "muted"),
+                text("—", "muted"),
                 text(formatDuration(ACCEPTED_DAY_OFF_HOURS)),
                 text(request.reason || "—", "muted"),
               ],
@@ -449,6 +451,8 @@ export const buildMetricDetail = (
                 cells: [
                   dateCell(dateKey),
                   badge("تعطیل رسمی", "amber"),
+                  text("—", "muted"),
+                  text("—", "muted"),
                   text(formatDuration(HOLIDAY_HOURS)),
                   text(holiday.title || "—", "muted"),
                 ],
@@ -463,12 +467,14 @@ export const buildMetricDetail = (
         key,
         title: "کارکرد ماه جاری",
         description:
-          "مجموع ساعات ثبت‌شده، به‌علاوه مرخصی‌های تأییدشده و تعطیلات رسمی ماه انتخاب‌شده.",
+          "مجموع ساعات ثبت‌شده، به‌علاوه مرخصی‌های تأییدشده و تعطیلات رسمی ماه انتخاب‌شده. برای هر روز کارکرد، «ورود» اولین ساعت ورود و «خروج» آخرین ساعت خروج همان روز است (شیفت دوم هم لحاظ می‌شود).",
         headline: `${formatHours(stats.workedHours)} ساعت`,
         headlineTone: "teal",
         columns: [
           { label: "تاریخ" },
           { label: "نوع" },
+          { label: "ورود" },
+          { label: "خروج" },
           { label: "ساعت" },
           { label: "توضیحات" },
         ],
@@ -488,6 +494,8 @@ export const buildMetricDetail = (
         today,
         yearTimeLogs,
         yearDayOffRequests,
+        yearHolidays,
+        countHolidayHours,
       });
 
       const signed = (hours: number): MetricCell => {
@@ -502,8 +510,11 @@ export const buildMetricDetail = (
       return {
         key,
         title: "تراز کارکرد",
-        description:
-          "تراز هر ماه = کارکرد واقعی منهای ساعت موظفی همان ماه طبق جدول رسمی. عدد مثبت اضافه‌کاری و عدد منفی کسری کار است. کارکرد واقعی شامل ساعات ثبت‌شده به‌علاوه معادل ساعتی مرخصی‌های تأییدشده است. عدد کارت تراز تجمعی از ابتدای سال تا ماه انتخاب‌شده است و ماه در جریان فقط تا امروز محاسبه می‌شود.",
+        description: `کارکرد مؤثر ماه = ساعات کارکرد ثبت‌شده + ساعات مرخصی تأییدشده (هر روز ${formatCount(
+          ACCEPTED_DAY_OFF_HOURS
+        )} ساعت) + ساعات تعطیلات رسمی (هر روز ${formatCount(
+          HOLIDAY_HOURS
+        )} ساعت) — دقیقاً همان عددی که کارت «کارکرد ماه جاری» نشان می‌دهد. تراز ماه = کارکرد مؤثر منهای ساعت موظفی؛ عدد مثبت اضافه‌کاری و عدد منفی کسری کار است. مرخصی تأییدشده و تعطیلی رسمی هیچ‌گاه کسری ایجاد نمی‌کنند. عدد کارت تراز تجمعی از ابتدای سال تا ماه انتخاب‌شده است و ماه در جریان فقط تا امروز محاسبه می‌شود.`,
         headline: `${formatDuration(
           Math.abs(balance.totalBalanceHours)
         )} ساعت ${getBalanceLabel(balance.totalBalanceHours)}`,
@@ -512,7 +523,7 @@ export const buildMetricDetail = (
           { label: "ماه" },
           { label: "روز کاری" },
           { label: "ساعت موظفی" },
-          { label: "کارکرد واقعی" },
+          { label: "کارکرد مؤثر" },
           { label: "تراز ماه" },
         ],
         rows: balance.months.map((row) => ({

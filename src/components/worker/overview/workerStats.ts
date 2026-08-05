@@ -82,6 +82,21 @@ export const parseClockToMinutes = (value?: string | null): number | null => {
 export const ALLOWED_ARRIVAL_MINUTES =
   parseClockToMinutes(ALLOWED_ARRIVAL_TIME) ?? 0;
 
+/** True when the given `YYYY-MM-DD` key falls on a Friday. */
+export const isFriday = (dateKey: string): boolean => {
+  const [year, month, day] = toDateKey(dateKey).split("-").map(Number);
+  if (!year || !month || !day) return false;
+  return new Date(year, month - 1, day).getDay() === 5;
+};
+
+/**
+ * Official holidays of a month that do **not** fall on a Friday, counted from
+ * the records an admin registered — never from a built-in calendar.
+ */
+export const countNonFridayHolidays = (holidays: OverviewHoliday[]): number =>
+  holidays.filter((holiday) => !isFriday(toDateKey(holiday.holiday_date)))
+    .length;
+
 /** True when the given `YYYY-MM-DD` key falls on a weekly day off. */
 export const isNonWorkingWeekday = (dateKey: string): boolean => {
   const [year, month, day] = toDateKey(dateKey).split("-").map(Number);
@@ -125,6 +140,19 @@ export const getArrivalMinutes = (logs: OverviewTimeLog[]): number | null => {
 };
 
 /**
+ * Latest clock-out of a day, in minutes since midnight. Both shifts are
+ * considered so the second shift's end wins when one is recorded.
+ */
+export const getDepartureMinutes = (logs: OverviewTimeLog[]): number | null => {
+  const departures = logs
+    .flatMap((log) => [log.end_time, log.end_time_2])
+    .map((value) => parseClockToMinutes(value))
+    .filter((value): value is number => value !== null);
+
+  return departures.length ? Math.max(...departures) : null;
+};
+
+/**
  * Minutes late for a day: the gap between the actual arrival and
  * {@link ALLOWED_ARRIVAL_TIME}. `0` when on time, `null` when no clock-in
  * was recorded (a missing arrival is an absence, not a delay).
@@ -163,12 +191,12 @@ export interface WorkerMonthStats {
   /** Hours actually credited for the month (work + approved leave + holidays). */
   workedHours: number;
   /**
-   * Official monthly quota, read from the HR table in `monthlyWorkQuota.ts`.
-   * It is published by HR, not derived from `getWorkingDayKeys` — that helper
-   * drives absence and late arrivals, which use the company's own weekend rule.
+   * Company quota for the month, read from `monthlyWorkQuota.ts`:
+   * `workingDays × COMPANY_DAILY_HOURS`. Set by company policy, never derived
+   * from the calendar. `getWorkingDayKeys` drives only absence and late arrivals.
    */
   requiredHours: number;
-  /** Official working days of the month — the «روزهای حضور» denominator. */
+  /** Company working days of the month — the «روزهای حضور» denominator. */
   requiredWorkingDays: number;
   /** Distinct days with at least one time log. */
   attendanceDays: number;

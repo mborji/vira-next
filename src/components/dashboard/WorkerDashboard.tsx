@@ -21,6 +21,7 @@ import { WorkerOverview } from "@/components/worker/overview/WorkerOverview";
 import { MetricDetailDialog } from "@/components/worker/overview/MetricDetailDialog";
 import { CLICKABLE_CARD_CLASS } from "@/components/worker/overview/OverviewStatCard";
 import type { OverviewProfile } from "@/components/worker/overview/ProfileSummaryCard";
+import type { LeaveBalance } from "@/components/worker/overview/LeaveSummaryCard";
 import type {
   MetricDetailInput,
   MetricKey,
@@ -117,6 +118,9 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
   >([]);
   const [yearlyDayOffLoading, setYearlyDayOffLoading] = useState(false);
   const [yearlyTimeLogs, setYearlyTimeLogs] = useState<TimeLog[]>([]);
+  const [yearlyHolidays, setYearlyHolidays] = useState<Holiday[]>([]);
+  const [leaveBalance, setLeaveBalance] = useState<LeaveBalance | null>(null);
+  const [leaveBalanceLoading, setLeaveBalanceLoading] = useState(false);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [totalHours, setTotalHours] = useState(0);
   /** Summary card whose detail dialog is open, `null` when nothing is open. */
@@ -230,6 +234,50 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
     }
   }, [targetWorkerId, yearParams]);
 
+  /**
+   * Official holidays of the whole selected Jalali year — «تراز کارکرد» credits
+   * them as worked hours so a holiday never turns into a deficit.
+   */
+  const fetchYearlyHolidays = useCallback(async () => {
+    const { startDate, endDate } = yearParams();
+
+    try {
+      const data = await apiClient.getHolidays({ startDate, endDate });
+      setYearlyHolidays(data || []);
+    } catch (error) {
+      setYearlyHolidays([]);
+    }
+  }, [yearParams]);
+
+  /**
+   * Yearly leave entitlement — the server owns the cap, so «مانده مرخصی» is
+   * read straight from `GET /workers/day-off-requests/remaining`.
+   */
+  const fetchLeaveBalance = useCallback(async () => {
+    if (!targetWorkerId) return;
+
+    setLeaveBalanceLoading(true);
+    try {
+      const data = await apiClient.getDayOffRequestRemaining({
+        workerId: targetWorkerId,
+        year: String(selectedMonth.jy),
+      });
+      setLeaveBalance(
+        typeof data?.remaining === "number"
+          ? {
+              limit: Number(data.limit) || 0,
+              used: Number(data.approvedCount) || 0,
+              remaining: Number(data.remaining) || 0,
+            }
+          : null
+      );
+    } catch (error) {
+      setLeaveBalance(null);
+    } finally {
+      setLeaveBalanceLoading(false);
+    }
+  }, [targetWorkerId, selectedMonth.jy]);
+
   const fetchHolidays = useCallback(async () => {
     const { startDate, endDate } = monthParams();
 
@@ -259,12 +307,16 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
     fetchDayOffRequests();
     fetchYearlyDayOffRequests();
     fetchYearlyTimeLogs();
+    fetchYearlyHolidays();
+    fetchLeaveBalance();
     fetchHolidays();
   }, [
     fetchTimeLogs,
     fetchDayOffRequests,
     fetchYearlyDayOffRequests,
     fetchYearlyTimeLogs,
+    fetchYearlyHolidays,
+    fetchLeaveBalance,
     fetchHolidays,
   ]);
 
@@ -360,6 +412,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
       holidays,
       yearTimeLogs: yearlyTimeLogs,
       yearDayOffRequests: yearlyDayOffRequests,
+      yearHolidays: yearlyHolidays,
       workedHours: totalHours,
       countHolidayHours: !isPartTime,
     }),
@@ -372,6 +425,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
       holidays,
       yearlyTimeLogs,
       yearlyDayOffRequests,
+      yearlyHolidays,
       totalHours,
       isPartTime,
     ]
@@ -566,7 +620,10 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
             dayOffRequests={dayOffRequests}
             yearlyDayOffRequests={yearlyDayOffRequests}
             yearlyDayOffLoading={yearlyDayOffLoading}
+            leaveBalance={leaveBalance}
+            leaveBalanceLoading={leaveBalanceLoading}
             yearlyTimeLogs={yearlyTimeLogs}
+            yearlyHolidays={yearlyHolidays}
             holidays={holidays}
             workedHours={totalHours}
             isSelf={!isInspecting}
@@ -593,6 +650,8 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
               fetchDayOffRequests();
               fetchYearlyTimeLogs();
               fetchYearlyDayOffRequests();
+              fetchYearlyHolidays();
+              fetchLeaveBalance();
               fetchHolidays();
             }}
           />
