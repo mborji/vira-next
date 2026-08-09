@@ -5,14 +5,17 @@ import {
   type JalaliDate,
 } from "@/utils/jalali";
 import {
+  COMPANY_DAILY_HOURS,
   getMonthLabel,
   getMonthQuota,
-  getQuotaDailyHours,
 } from "./monthlyWorkQuota";
 import {
+  ACCEPTED_DAY_OFF_HOURS,
+  HOLIDAY_HOURS,
   loggedHoursOf,
   toDateKey,
   type OverviewDayOffRequest,
+  type OverviewHoliday,
   type OverviewTimeLog,
 } from "./workerStats";
 
@@ -42,19 +45,28 @@ export interface MonthBalance {
   /** Jalali month number, 1 … 12. */
   month: number;
   monthName: string;
-  /** Working days of the month per the HR quota. */
+  /** Company working days of the month (holidays excluded). */
   fullWorkingDays: number;
-  /** Working days actually charged — pro-rated while the month is running. */
-  requiredWorkingDays: number;
-  /** Published quota of the month, before any pro-rating. */
+  /** Official holidays of the month — `0` when they are not being credited. */
+  fullOfficialHolidays: number;
+  /** `fullWorkingDays + fullOfficialHolidays` — every day the quota charges. */
+  fullQuotaDays: number;
+  /** Quota days actually charged — elapsed days only while the month runs. */
+  requiredQuotaDays: number;
+  /** Full quota of the month (`fullQuotaDays × 9`), before any pro-rating. */
   fullRequiredHours: number;
-  /** Quota actually charged — pro-rated while the month is running. */
+  /** Quota actually charged: `requiredQuotaDays × COMPANY_DAILY_HOURS`. */
   requiredHours: number;
   /** Hours from the employee's own time logs. */
   loggedHours: number;
-  /** Approved days off, credited at the month's daily quota rate. */
+  /** Approved days off × {@link ACCEPTED_DAY_OFF_HOURS} (9h per day). */
   leaveHours: number;
-  /** `loggedHours + leaveHours` — what the month is credited with. */
+  /** Official holidays × {@link HOLIDAY_HOURS} (9h per record). */
+  holidayHours: number;
+  /**
+   * «کارکرد مؤثر» — `loggedHours + leaveHours + holidayHours`, i.e. everything
+   * the month is credited with.
+   */
   workedHours: number;
   /** `workedHours − requiredHours`; negative is a deficit, positive overtime. */
   balanceHours: number;
@@ -81,6 +93,10 @@ interface BuildYearBalanceInput {
   yearTimeLogs: OverviewTimeLog[];
   /** Every day-off request of the selected Jalali year. */
   yearDayOffRequests: OverviewDayOffRequest[];
+  /** Every official holiday of the selected Jalali year. */
+  yearHolidays?: OverviewHoliday[];
+  /** Part-time employees are not credited holiday hours. */
+  countHolidayHours?: boolean;
 }
 
 /** Share of a month that has already elapsed, measured in non-Friday days. */
@@ -102,13 +118,22 @@ const elapsedShareOfMonth = (jy: number, jm: number, jd: number): number => {
 /**
  * Month-by-month work-hour balance of a Jalali year.
  *
- * Required hours and required working days come from the HR quota table
- * (`monthlyWorkQuota.ts`). Because that table already removes official
- * holidays, holiday hours are *not* credited here — only real time logs plus
- * approved leave count towards the quota.
+ * «کارکرد مؤثر» of a month is the *full* credited total, exactly as the
+ * dashboard's «کارکرد ماه جاری» card computes it, so the two figures can never
+ * disagree:
  *
- * The running month is charged pro rata (by elapsed non-Friday days) so a
- * half-finished month does not read as a large deficit.
+ *     کارکرد مؤثر = ساعات ثبت‌شده
+ *                 + (روزهای مرخصی تأییدشده × ACCEPTED_DAY_OFF_HOURS)
+ *                 + (رکوردهای تعطیل رسمی   × HOLIDAY_HOURS)
+ *
+ * Required hours are always «(روز کاری + تعطیل رسمی) × ۹», straight from the
+ * company table in `monthlyWorkQuota.ts` — never derived from the calendar.
+ * Holidays therefore sit on both sides and cancel out exactly.
+ *
+ * The running month is charged only for the quota days elapsed so far
+ * (`round(quotaDays × elapsed share) × 9`), and — for the same reason — only
+ * leave and holidays **up to today** are credited. Crediting a holiday later
+ * this month while its quota is not yet charged would show phantom overtime.
  */
 export const buildYearBalance = ({
   year,
@@ -116,9 +141,19 @@ export const buildYearBalance = ({
   today,
   yearTimeLogs,
   yearDayOffRequests,
+  yearHolidays = [],
+  countHolidayHours = true,
 }: BuildYearBalanceInput): YearBalance => {
   const lastMonth =
     year > today.jy ? 0 : Math.min(upToMonth, year < today.jy ? 12 : today.jm);
+
+  /**
+   * Today as a DB day key. Leave and holidays are only credited up to here, so
+   * a running month never earns hours its quota has not charged for yet. Past
+   * months are unaffected — every one of their days is already `<=` this key.
+   */
+  const todayKey = formatDateForDB(today.jy, today.jm, today.jd);
+  const hasHappened = (dateKey: string) => Boolean(dateKey) && dateKey <= todayKey;
 
   // Every day key of the year mapped to its Jalali month, so logs coming back
   // as Gregorian dates can be bucketed without re-converting each one.
@@ -141,10 +176,25 @@ export const buildYearBalance = ({
   yearDayOffRequests
     .filter((request) => request.status === "approved")
     .forEach((request) => {
-      const jm = monthKeyIndex.get(toDateKey(request.request_date));
-      if (!jm) return;
+      const dateKey = toDateKey(request.request_date);
+      const jm = monthKeyIndex.get(dateKey);
+      if (!jm || !hasHappened(dateKey)) return;
       leaveDaysByMonth.set(jm, (leaveDaysByMonth.get(jm) || 0) + 1);
     });
+
+  // Every registered holiday counts, flat `HOLIDAY_HOURS`, for every employee
+  // and regardless of whether they clocked in. The count comes from the
+  // registered holiday records, which are expected to match the company
+  // table's `officialHolidays` column month by month.
+  const holidayDaysByMonth = new Map<number, number>();
+  if (countHolidayHours) {
+    yearHolidays.forEach((holiday) => {
+      const dateKey = toDateKey(holiday.holiday_date);
+      const jm = monthKeyIndex.get(dateKey);
+      if (!jm || !hasHappened(dateKey)) return;
+      holidayDaysByMonth.set(jm, (holidayDaysByMonth.get(jm) || 0) + 1);
+    });
+  }
 
   const months: MonthBalance[] = [];
 
@@ -155,24 +205,34 @@ export const buildYearBalance = ({
     const inProgress = year === today.jy && jm === today.jm;
     const share = inProgress ? elapsedShareOfMonth(year, jm, today.jd) : 1;
 
-    const requiredHours = quota.requiredHours * share;
-    const requiredWorkingDays = inProgress
-      ? Math.round(quota.workingDays * share)
-      : quota.workingDays;
+    // Part-timers are not credited holiday hours, so they must not be charged
+    // for them either — otherwise every holiday would become a deficit.
+    const quotaDays = countHolidayHours ? quota.quotaDays : quota.workingDays;
+    const requiredQuotaDays = inProgress
+      ? Math.round(quotaDays * share)
+      : quotaDays;
+    // Never `quota.requiredHours * share` — the quota is a whole number of
+    // 9-hour days at every point in the month, running or finished.
+    const requiredHours = requiredQuotaDays * COMPANY_DAILY_HOURS;
 
     const loggedHours = loggedByMonth.get(jm) || 0;
-    const leaveHours = (leaveDaysByMonth.get(jm) || 0) * getQuotaDailyHours(jm);
-    const workedHours = loggedHours + leaveHours;
+    const leaveHours =
+      (leaveDaysByMonth.get(jm) || 0) * ACCEPTED_DAY_OFF_HOURS;
+    const holidayHours = (holidayDaysByMonth.get(jm) || 0) * HOLIDAY_HOURS;
+    const workedHours = loggedHours + leaveHours + holidayHours;
 
     months.push({
       month: jm,
       monthName: getMonthLabel(jm),
       fullWorkingDays: quota.workingDays,
-      requiredWorkingDays,
-      fullRequiredHours: quota.requiredHours,
+      fullOfficialHolidays: countHolidayHours ? quota.officialHolidays : 0,
+      fullQuotaDays: quotaDays,
+      requiredQuotaDays,
+      fullRequiredHours: quotaDays * COMPANY_DAILY_HOURS,
       requiredHours,
       loggedHours,
       leaveHours,
+      holidayHours,
       workedHours,
       balanceHours: workedHours - requiredHours,
       inProgress,

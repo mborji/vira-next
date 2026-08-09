@@ -56,9 +56,13 @@ import {
   formatJalaliDate,
 } from "@/utils/jalali";
 import { cn, convertToPersianDigits, formatDecimalHoursToTime } from "@/lib/utils";
-
-const ACCEPTED_DAY_OFF_HOURS = 9;
-const HOLIDAY_HOURS = 9;
+// Single source of truth for the company's 9-hour day. Never redeclare these
+// as local constants — that is how the manager panel drifted from the employee
+// dashboard before.
+import {
+  ACCEPTED_DAY_OFF_HOURS,
+  HOLIDAY_HOURS,
+} from "@/components/worker/overview/workerStats";
 
 type DashboardSectionId =
   | "summary"

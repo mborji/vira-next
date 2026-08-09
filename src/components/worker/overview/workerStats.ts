@@ -7,13 +7,19 @@ import {
   type JalaliDate,
 } from "@/utils/jalali";
 import { convertToPersianDigits, formatDecimalHoursToTime } from "@/lib/utils";
-import { getMonthQuota } from "./monthlyWorkQuota";
+import { COMPANY_DAILY_HOURS, getMonthQuota } from "./monthlyWorkQuota";
 
-/** Hours credited for a single approved day off. */
-export const ACCEPTED_DAY_OFF_HOURS = 9;
+/**
+ * Hours credited for a single approved day off — the same as a company working
+ * day, so approved leave is always neutral and can never create a deficit.
+ */
+export const ACCEPTED_DAY_OFF_HOURS = COMPANY_DAILY_HOURS;
 
-/** Hours credited for an official holiday (full-time employees only). */
-export const HOLIDAY_HOURS = 9;
+/**
+ * Hours credited for an official holiday (full-time employees only). A full
+ * working day as well, for the same reason.
+ */
+export const HOLIDAY_HOURS = COMPANY_DAILY_HOURS;
 
 /**
  * Weekly days off, as `Date.getDay()` values — Thursday (4) and Friday (5).
@@ -163,12 +169,12 @@ export interface WorkerMonthStats {
   /** Hours actually credited for the month (work + approved leave + holidays). */
   workedHours: number;
   /**
-   * Official monthly quota, read from the HR table in `monthlyWorkQuota.ts`.
-   * It is published by HR, not derived from `getWorkingDayKeys` — that helper
-   * drives absence and late arrivals, which use the company's own weekend rule.
+   * The month's quota: `workingDays × COMPANY_DAILY_HOURS`, read from the
+   * company table in `monthlyWorkQuota.ts`. It is never derived from
+   * `getWorkingDayKeys` — that helper drives absence and late arrivals only.
    */
   requiredHours: number;
-  /** Official working days of the month — the «روزهای حضور» denominator. */
+  /** Company working days of the month — the «روزهای حضور» denominator. */
   requiredWorkingDays: number;
   /** Distinct days with at least one time log. */
   attendanceDays: number;
@@ -210,7 +216,7 @@ export const buildWorkerMonthStats = ({
       .map((request) => toDateKey(request.request_date))
   );
 
-  // The monthly quota is published by HR, not derived from the calendar.
+  // The monthly quota comes from the company table, not from the calendar.
   const quota = getMonthQuota(month.jm);
   const requiredHours = quota?.requiredHours ?? 0;
   const requiredWorkingDays = quota?.workingDays ?? 0;

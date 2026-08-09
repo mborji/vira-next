@@ -40,6 +40,10 @@ interface WorkerOverviewProps {
   /** Today's Jalali date, used to pro-rate the running month's quota. */
   today: JalaliDate;
   holidays: OverviewHoliday[];
+  /** Official holidays of the whole selected Jalali year — «تراز کارکرد». */
+  yearlyHolidays?: OverviewHoliday[];
+  /** Part-time employees are not credited holiday hours. */
+  countHolidayHours?: boolean;
   /** Credited hours for the month, computed by the dashboard. */
   workedHours: number;
   /**
@@ -67,6 +71,8 @@ export const WorkerOverview = ({
   yearlyTimeLogs,
   today,
   holidays,
+  yearlyHolidays,
+  countHolidayHours = true,
   workedHours,
   isSelf = true,
   onMetricSelect,
@@ -98,8 +104,18 @@ export const WorkerOverview = ({
         today,
         yearTimeLogs: yearlyTimeLogs,
         yearDayOffRequests: yearlyDayOffRequests,
+        yearHolidays: yearlyHolidays ?? holidays,
+        countHolidayHours,
       }),
-    [selectedMonth, today, yearlyTimeLogs, yearlyDayOffRequests]
+    [
+      selectedMonth,
+      today,
+      yearlyTimeLogs,
+      yearlyDayOffRequests,
+      yearlyHolidays,
+      holidays,
+      countHolidayHours,
+    ]
   );
 
   const balance = yearBalance.totalBalanceHours;

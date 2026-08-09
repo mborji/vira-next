@@ -78,8 +78,9 @@ import {
 import { useWindowSize } from "../windowWidth/useWindowSize";
 
 const MOBILE_WIDTH_THRESHOLD = 600;
-const ACCEPTED_DAY_OFF_HOURS = 9;
-const HOLIDAY_HOURS = 9;
+// NOTE: no local ACCEPTED_DAY_OFF_HOURS / HOLIDAY_HOURS here. If this panel ever
+// needs the company's 9-hour day, import it from
+// `@/components/worker/overview/workerStats` — never redeclare it.
 
 /** First-letter initials from a full name, for avatars. */
 const getInitials = (name?: string | null): string => {
