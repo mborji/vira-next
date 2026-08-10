@@ -191,6 +191,20 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const currentDate = getCurrentJalaliDate();
 
+  /**
+   * Tab the manager lands on straight after signing in.
+   *
+   * An `admin` works out of «کارمندان» (the `WorkerManagement` panel), so that
+   * tab opens by itself and its content is on screen with no click. A
+   * `super_admin` keeps the original landing tab, «درخواست‌ها».
+   *
+   * This is presentation only — it picks the initially selected tab and touches
+   * neither authentication nor the permissions of any tab. `Dashboard.tsx`
+   * renders this component only once `profile` is loaded, so the role is
+   * already known on first mount and `defaultValue` reads the right value.
+   */
+  const defaultTab = profile.role === "admin" ? "workers" : "submissions";
+
 
   const fetchSubmissions = async () => {
     try {
@@ -510,7 +524,7 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
         </div>
 
         {/* Main Content */}
-        <Tabs defaultValue="submissions" className="space-y-6" dir="rtl">
+        <Tabs defaultValue={defaultTab} className="space-y-6" dir="rtl">
           <TabsList className="grid w-full grid-cols-4 h-20">
             <TabsTrigger value="submissions" className="persian-body">
               درخواست‌ها
