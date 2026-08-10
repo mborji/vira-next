@@ -11,6 +11,18 @@ import { getJalaliMonthName } from "@/utils/jalali";
  */
 export const COMPANY_DAILY_HOURS = 9;
 
+/**
+ * Annual paid-leave entitlement, in working days — the قانون کار allowance of
+ * ۲۶ روز کاری در سال. It is a *company/legal* rule, not a calendar one: Fridays
+ * and official holidays are never charged against it.
+ *
+ * There is no per-employee entitlement column in the database, so this single
+ * constant is the source of truth for «مانده مرخصی». Should HR ever need
+ * per-employee allowances, add a `profiles.annual_leave_days` column and use
+ * this value only as the fallback.
+ */
+export const ANNUAL_LEAVE_DAYS = 26;
+
 interface CompanyMonthRow {
   /** Company working days — official holidays are *not* included. */
   workingDays: number;

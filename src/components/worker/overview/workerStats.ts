@@ -7,7 +7,11 @@ import {
   type JalaliDate,
 } from "@/utils/jalali";
 import { convertToPersianDigits, formatDecimalHoursToTime } from "@/lib/utils";
-import { COMPANY_DAILY_HOURS, getMonthQuota } from "./monthlyWorkQuota";
+import {
+  ANNUAL_LEAVE_DAYS,
+  COMPANY_DAILY_HOURS,
+  getMonthQuota,
+} from "./monthlyWorkQuota";
 
 /**
  * Hours credited for a single approved day off — the same as a company working
@@ -131,6 +135,20 @@ export const getArrivalMinutes = (logs: OverviewTimeLog[]): number | null => {
 };
 
 /**
+ * Latest clock-out of a day, in minutes since midnight. Both shifts are
+ * considered so a day logged out of order still reports the real departure.
+ * `null` when the day has no clock-out at all.
+ */
+export const getDepartureMinutes = (logs: OverviewTimeLog[]): number | null => {
+  const departures = logs
+    .flatMap((log) => [log.end_time, log.end_time_2])
+    .map((value) => parseClockToMinutes(value))
+    .filter((value): value is number => value !== null);
+
+  return departures.length ? Math.max(...departures) : null;
+};
+
+/**
  * Minutes late for a day: the gap between the actual arrival and
  * {@link ALLOWED_ARRIVAL_TIME}. `0` when on time, `null` when no clock-in
  * was recorded (a missing arrival is an absence, not a delay).
@@ -249,12 +267,27 @@ export interface LeaveSummary {
   pending: number;
   approved: number;
   rejected: number;
+  /**
+   * Leave days already spent this year — the approved requests. Each
+   * `day_off_requests` row is a single date, so one approved row is one day.
+   * Pending requests are deliberately **not** counted: a request that may still
+   * be rejected must not eat into the balance.
+   */
+  used: number;
+  /** The yearly allowance the balance is measured against. */
+  entitlement: number;
+  /** `entitlement − used`, floored at zero so the card never shows a negative. */
+  remaining: number;
+  /** Days used beyond the allowance, `0` while the employee is within it. */
+  overused: number;
 }
 
 export const summarizeLeaveRequests = (
-  requests: OverviewDayOffRequest[]
-): LeaveSummary =>
-  requests.reduce<LeaveSummary>(
+  requests: OverviewDayOffRequest[],
+  /** Yearly allowance; defaults to the قانون کار ۲۶ working days. */
+  entitlement: number = ANNUAL_LEAVE_DAYS
+): LeaveSummary => {
+  const counts = requests.reduce(
     (summary, request) => {
       if (request.status === "approved") summary.approved += 1;
       else if (request.status === "rejected") summary.rejected += 1;
@@ -263,6 +296,17 @@ export const summarizeLeaveRequests = (
     },
     { pending: 0, approved: 0, rejected: 0 }
   );
+
+  const used = counts.approved;
+
+  return {
+    ...counts,
+    used,
+    entitlement,
+    remaining: Math.max(0, entitlement - used),
+    overused: Math.max(0, used - entitlement),
+  };
+};
 
 /** Persian-digit integer, e.g. `22` → `۲۲`. */
 export const formatCount = (value: number): string =>

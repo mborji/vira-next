@@ -25,6 +25,7 @@ import {
   getArrivalMinutes,
   getDayName,
   getDelayMinutes,
+  getDepartureMinutes,
   getWorkingDayKeys,
   groupTimeLogsByDay,
   isNonWorkingWeekday,
@@ -136,6 +137,18 @@ const shiftCell = (
 
   return { text: parts.length ? parts.join(" / ") : "—", ltr: parts.length > 1 };
 };
+
+/**
+ * First clock-in of a day (`ورود`). Unlike {@link shiftCell} this collapses a
+ * two-shift day to a single time, which is what «کارکرد ماه جاری» needs — its
+ * rows are one per day, not one per shift.
+ */
+const firstArrivalCell = (logs: OverviewTimeLog[]): MetricCell =>
+  text(formatMinutesAsClock(getArrivalMinutes(logs)), "muted");
+
+/** Last clock-out of a day (`خروج`) — the counterpart of {@link firstArrivalCell}. */
+const lastDepartureCell = (logs: OverviewTimeLog[]): MetricCell =>
+  text(formatMinutesAsClock(getDepartureMinutes(logs)), "muted");
 
 const descriptionCell = (logs: OverviewTimeLog[]): MetricCell => {
   const notes = logs
@@ -435,6 +448,8 @@ export const buildMetricDetail = (
             cells: [
               dateCell(dateKey),
               badge("کارکرد", "teal"),
+              firstArrivalCell(logs),
+              lastDepartureCell(logs),
               text(formatDuration(hoursOf(dateKey))),
               descriptionCell(logs),
             ],
@@ -454,6 +469,9 @@ export const buildMetricDetail = (
               cells: [
                 dateCell(dateKey),
                 badge("مرخصی تأیید شده", "emerald"),
+                // A leave day has no clock-in or clock-out.
+                text("—", "muted"),
+                text("—", "muted"),
                 text(formatDuration(ACCEPTED_DAY_OFF_HOURS)),
                 text(request.reason || "—", "muted"),
               ],
@@ -470,6 +488,10 @@ export const buildMetricDetail = (
                 cells: [
                   dateCell(dateKey),
                   badge("تعطیل رسمی", "amber"),
+                  // Holiday credit is independent of attendance; when the day
+                  // was also worked, its own «کارکرد» row carries the times.
+                  text("—", "muted"),
+                  text("—", "muted"),
                   text(formatDuration(HOLIDAY_HOURS)),
                   text(holiday.title || "—", "muted"),
                 ],
@@ -484,12 +506,14 @@ export const buildMetricDetail = (
         key,
         title: "کارکرد ماه جاری",
         description:
-          "مجموع ساعات ثبت‌شده، به‌علاوه مرخصی‌های تأییدشده و تعطیلات رسمی ماه انتخاب‌شده. در ماه در جریان فقط روزهای سپری‌شده تا امروز شمرده می‌شوند.",
+          "مجموع ساعات ثبت‌شده، به‌علاوه مرخصی‌های تأییدشده و تعطیلات رسمی ماه انتخاب‌شده. در ماه در جریان فقط روزهای سپری‌شده تا امروز شمرده می‌شوند. ستون «ورود» اولین ورود ثبت‌شده و ستون «خروج» آخرین خروج ثبت‌شده همان روز است؛ برای مرخصی و تعطیل رسمی ورود و خروجی ثبت نمی‌شود.",
         headline: `${formatHours(stats.workedHours)} ساعت`,
         headlineTone: "teal",
         columns: [
           { label: "تاریخ" },
           { label: "نوع" },
+          { label: "ورود" },
+          { label: "خروج" },
           { label: "ساعت" },
           { label: "توضیحات" },
         ],

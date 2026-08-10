@@ -191,10 +191,17 @@ export const WorkerOverview = ({
       </h2>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        {/* start (right in RTL): identity + leave summary */}
-        <div className="space-y-5">
+        {/* start (right in RTL): identity + leave summary.
+            A flex column (not `space-y-5`) so «خلاصه مرخصی‌ها» can take the
+            height left over by the taller column beside it instead of leaving
+            a gap at the bottom of the page. */}
+        <div className="flex flex-col gap-5">
           <ProfileSummaryCard profile={profile} />
-          <LeaveSummaryCard summary={leaveSummary} yearLabel={yearLabel} />
+          <LeaveSummaryCard
+            summary={leaveSummary}
+            yearLabel={yearLabel}
+            className="flex-1"
+          />
         </div>
 
         {/* end (left in RTL): KPIs, workload ratio, leave history */}
