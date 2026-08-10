@@ -18,11 +18,17 @@ const Switch = React.forwardRef<
     <SwitchPrimitives.Thumb
       className={cn(
         "pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform",
-        // LTR (default)
-        "data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0",
-        // RTL-specific adjustment
-        props.dir === "rtl" &&
-          "data-[state=checked]:-translate-x-5 data-[state=unchecked]:-translate-x-0"
+        // The track is a flex container, so the thumb rests against the start
+        // edge — the left in LTR, the RIGHT in RTL. `translate-x` is physical
+        // and never flips, so each direction needs its own sign; sharing one
+        // positive offset pushes the thumb clean out of the track in RTL.
+        //
+        // The direction has to be read from the DOM (`ltr:` / `rtl:` match any
+        // `[dir]` ancestor — here `<html dir="rtl">`). The previous version
+        // tested `props.dir`, which no caller passes, so the RTL branch never
+        // ran and the knob sat outside the pill.
+        "ltr:data-[state=unchecked]:translate-x-0 ltr:data-[state=checked]:translate-x-5",
+        "rtl:data-[state=unchecked]:translate-x-0 rtl:data-[state=checked]:-translate-x-5"
       )}
     />
   </SwitchPrimitives.Root>
