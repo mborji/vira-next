@@ -1,4 +1,3 @@
-import { cn } from "@/lib/utils";
 import { OverviewPanel } from "./OverviewPanel";
 import { formatCount, formatHours } from "./workerStats";
 
@@ -18,7 +17,6 @@ export const WorkloadRatioCard = ({
   className,
 }: WorkloadRatioCardProps) => {
   const barWidth = Math.min(100, Math.max(0, completionPercent));
-  const reachedTarget = completionPercent >= 100;
 
   return (
     <OverviewPanel title="نسبت کارکرد به موظفی" className={className}>
@@ -30,11 +28,10 @@ export const WorkloadRatioCard = ({
         aria-valuenow={Math.round(barWidth)}
         aria-label="نسبت کارکرد به ساعت موظفی"
       >
+        {/* Same green as the «مانده مرخصی» bar in `LeaveSummaryCard` —
+            keep the two in step if either one is ever restyled. */}
         <div
-          className={cn(
-            "h-full rounded-full transition-[width] duration-700 ease-out",
-            reachedTarget ? "bg-teal-500" : "bg-teal-400"
-          )}
+          className="h-full rounded-full bg-emerald-500 transition-[width] duration-700 ease-out"
           style={{ width: `${barWidth}%` }}
         />
       </div>
@@ -43,7 +40,8 @@ export const WorkloadRatioCard = ({
         <span className="persian-body text-xs font-medium text-muted-foreground [font-variant-numeric:tabular-nums]">
           {formatCount(completionPercent)}٪
         </span>
-        <span className="persian-heading text-xs font-bold text-teal-700 [font-variant-numeric:tabular-nums] dark:text-teal-400">
+        {/* Emerald to match the bar above and the «مانده مرخصی» block. */}
+        <span className="persian-heading text-xs font-bold text-emerald-700 [font-variant-numeric:tabular-nums] dark:text-emerald-400">
           {formatHours(workedHours)} / {formatHours(requiredHours)} ساعت
         </span>
       </div>
