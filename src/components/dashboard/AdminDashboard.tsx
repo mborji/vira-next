@@ -21,7 +21,6 @@ import {
   Coffee,
   Search,
   Activity,
-  ChevronDown,
   UserCircle,
   LayoutDashboard,
   KeyRound,
@@ -29,7 +28,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useAuthStore } from "@/hooks/useAuthStore";
 import { apiClient } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -56,14 +55,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { AccountMenu } from "@/components/layout/AccountMenu";
 import {
   Table,
   TableBody,
@@ -528,66 +521,67 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
               </div>
 
               {/*
-                Account menu — the single profile/user menu of the panel. It
-                collects everything that is about the signed-in manager rather
-                than about management: their profile, their personal employee
-                dashboard and their password. The two last entries used to be
+                Account menu — the shared `AccountMenu`, so the manager's list
+                is the very same component (and the very same logout) the
+                employee and client dashboards render. Only the manager-only
+                entries are passed in here: their profile, their personal
+                employee dashboard and their password. The last two used to be
                 top-level tabs; only their entry point moved here, the tab
                 content and its logic are untouched.
               */}
-              <DropdownMenu dir="rtl">
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex items-center gap-2 rounded-full border border-border bg-card/70 py-1.5 pe-2 ps-3 text-sm text-muted-foreground backdrop-blur transition-colors hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background data-[state=open]:bg-card data-[state=open]:text-foreground"
-                  >
-                    <span className="persian-body flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-                      {getInitials(profile.full_name)}
-                    </span>
-                    <span className="persian-body hidden max-w-[10rem] truncate sm:inline">
-                      {profile.full_name || "پروفایل"}
-                    </span>
-                    <ChevronDown className="h-4 w-4" />
-                  </button>
-                </DropdownMenuTrigger>
+              <AccountMenu fullName={profile.full_name}>
+                <DropdownMenuItem
+                  className="persian-body gap-2"
+                  /*
+                    Deferred by one tick on purpose: the menu and the dialog
+                    are both focus-trapping layers, and opening the dialog in
+                    the same commit that unmounts the menu makes the menu's
+                    focus-restore fight the dialog's autofocus. Letting the
+                    menu finish closing first keeps focus in the dialog.
+                  */
+                  onSelect={() =>
+                    window.setTimeout(() => setProfileDialogOpen(true), 0)
+                  }
+                >
+                  <UserCircle className="h-4 w-4 text-muted-foreground" />
+                  پروفایل من
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="persian-body gap-2"
+                  onSelect={() => goToTab("calendar")}
+                >
+                  <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
+                  پنل شخصی من
+                </DropdownMenuItem>
+                {/*
+                  The way back from «پنل شخصی من» to the management panel, for
+                  managers only. `isAdmin` is the project's existing role check
+                  (`user.role` is `admin` or `super_admin`) — no new role, no new
+                  permission. It targets `defaultTab`, the exact same tab a
+                  manager lands on after signing in, so switching panels and
+                  logging in agree with each other.
 
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel className="persian-body text-muted-foreground">
-                    حساب کاربری
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
+                  Both panels are `TabsContent` of this one component, so the
+                  switch is local state only: no navigation, no re-authentication,
+                  the session is never touched.
+                */}
+                {isAdmin && (
                   <DropdownMenuItem
                     className="persian-body gap-2"
-                    /*
-                      Deferred by one tick on purpose: the menu and the dialog
-                      are both focus-trapping layers, and opening the dialog in
-                      the same commit that unmounts the menu makes the menu's
-                      focus-restore fight the dialog's autofocus. Letting the
-                      menu finish closing first keeps focus in the dialog.
-                    */
-                    onSelect={() =>
-                      window.setTimeout(() => setProfileDialogOpen(true), 0)
-                    }
+                    onSelect={() => goToTab(defaultTab)}
                   >
-                    <UserCircle className="h-4 w-4 text-muted-foreground" />
-                    پروفایل من
+                    <Shield className="h-4 w-4 text-muted-foreground" />
+                    پنل مدیریت
                   </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="persian-body gap-2"
-                    onSelect={() => goToTab("calendar")}
-                  >
-                    <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
-                    پنل شخصی من
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="persian-body gap-2"
-                    onSelect={() => goToTab("settings")}
-                  >
-                    <KeyRound className="h-4 w-4 text-muted-foreground" />
-                    تغییر رمز عبور
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                )}
+                <DropdownMenuItem
+                  className="persian-body gap-2"
+                  onSelect={() => goToTab("settings")}
+                >
+                  <KeyRound className="h-4 w-4 text-muted-foreground" />
+                  تغییر رمز عبور
+                </DropdownMenuItem>
+              </AccountMenu>
             </div>
           </div>
         </div>
@@ -654,20 +648,19 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
           dir="rtl"
         >
           {/*
-            Only «کارمندان» is left in the tab bar. The duplicated entries —
-            درخواست‌ها / کاربران / مقالات / خدمات / پروژه‌ها — are reached from
-            the summary cards above, and پنل شخصی من / تغییر رمز عبور from the
-            account menu in the header. Every `TabsContent` below is untouched
-            and every section is still reachable; only the duplicated *triggers*
-            were removed. Height drops from `h-20` to `h-14` because the bar no
-            longer wraps onto a second row.
-          */}
-          <TabsList className="grid w-full grid-cols-1 h-14">
-            <TabsTrigger value="workers" className="persian-body">
-              کارمندان
-            </TabsTrigger>
-          </TabsList>
+            There is deliberately NO `TabsList` here any more.
 
+            It used to hold one leftover trigger labelled «کارمندان», which sat
+            directly above `WorkerManagement`'s own «مدیریت کارمندان» heading and
+            read as a duplicate. Every section is reached from elsewhere now: the
+            five summary cards above, and پنل شخصی من / پنل مدیریت / تغییر رمز
+            عبور from the account menu. `Tabs` stays because it is what switches
+            the panels — Radix needs no `TabsList` for that, the controlled
+            `value` is enough — and every `TabsContent` below is untouched.
+
+            «مدیریت کارمندان» and its section menu («خلاصه کارمندان», «ساعات
+            کاری», …) live inside `WorkerManagement` and were not touched.
+          */}
           <TabsContent value="submissions">
             <div className="space-y-6">
               {/* Submission Stats Cards */}
@@ -1040,12 +1033,15 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
             The manager's own personal panel — the very same dashboard a
             regular employee sees, scoped to the signed-in user. Reusing it
             keeps attendance, balance, delay and leave logic in one place.
-            The password tab is hidden because this dashboard already has one.
+            The password tab is hidden because this dashboard already has one,
+            and so is the account menu: this panel's own header already shows
+            it, and two account menus on one screen would be a duplicate.
           */}
           <TabsContent value="calendar">
             <WorkerDashboard
               title="پنل شخصی من"
               showPasswordTab={false}
+              showAccountMenu={false}
               className="p-0"
             />
           </TabsContent>

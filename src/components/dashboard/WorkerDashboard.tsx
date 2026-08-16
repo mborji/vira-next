@@ -30,6 +30,7 @@ import {
   HOLIDAY_HOURS,
 } from "@/components/worker/overview/workerStats";
 import { useAuthStore } from "@/hooks/useAuthStore";
+import { AccountMenu } from "@/components/layout/AccountMenu";
 import { apiClient } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -89,6 +90,14 @@ export interface WorkerDashboardProps {
    * (such as the admin dashboard) that already offer it elsewhere.
    */
   showPasswordTab?: boolean;
+  /**
+   * Account menu in the panel header. On by default, because a regular
+   * employee's dashboard is a whole page and needs a way out of the account.
+   * Hosts that already render their own account menu around this component —
+   * the admin dashboard — pass `false` so the screen never shows two.
+   * It is hidden automatically while inspecting somebody else's records.
+   */
+  showAccountMenu?: boolean;
   className?: string;
 }
 
@@ -106,6 +115,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
   workerProfile,
   title,
   showPasswordTab,
+  showAccountMenu = true,
   className,
 }) => {
   const { user } = useAuthStore();
@@ -516,6 +526,16 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
               <ChevronLeft className="h-4 w-4" />
             </Button>
           </div>
+
+          {/*
+            The employee's account menu — the same shared component the admin
+            panel and the client dashboard use, so «خروج از حساب کاربری» is in
+            the same place for everyone. Hidden when this dashboard is embedded
+            in a host that has its own menu, and while a manager is inspecting
+            somebody else's records (the menu would then sit next to another
+            person's name).
+          */}
+          {showAccountMenu && !isInspecting && <AccountMenu />}
         </div>
       </div>
 

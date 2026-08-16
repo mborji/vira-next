@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/hooks/useAuthStore";
+import { AccountMenu } from "@/components/layout/AccountMenu";
 import { apiClient } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -218,13 +219,18 @@ const ClientDashboard = ({ profile }: ClientDashboardProps) => {
             خوش آمدید {profile.full_name || "کاربر عزیز"}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <Button size="sm" asChild>
             <a href="/contact">
               <Plus className="w-4 h-4 ml-1" />
               درخواست جدید
             </a>
           </Button>
+          {/*
+            Same shared account menu as the admin and employee dashboards, so
+            «خروج از حساب کاربری» sits in the same place for every role.
+          */}
+          <AccountMenu fullName={profile.full_name} />
         </div>
       </div>
 
