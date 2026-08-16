@@ -21,6 +21,10 @@ import {
   Coffee,
   Search,
   Activity,
+  ChevronDown,
+  UserCircle,
+  LayoutDashboard,
+  KeyRound,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -52,6 +56,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Table,
   TableBody,
@@ -201,9 +213,22 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
    * This is presentation only — it picks the initially selected tab and touches
    * neither authentication nor the permissions of any tab. `Dashboard.tsx`
    * renders this component only once `profile` is loaded, so the role is
-   * already known on first mount and `defaultValue` reads the right value.
+   * already known on first mount, so the initial state reads the right value.
    */
   const defaultTab = profile.role === "admin" ? "workers" : "submissions";
+
+  /**
+   * The tab bar is now CONTROLLED rather than `defaultValue`-uncontrolled.
+   *
+   * Reason: the top summary cards and the profile menu are the entry points for
+   * the sections whose triggers were removed from the tab bar, and both need to
+   * select a tab from outside `TabsList`. The tab *values* are unchanged, every
+   * `TabsContent` is unchanged, and the landing tab is still `defaultTab`.
+   */
+  const [activeTab, setActiveTab] = useState<string>(defaultTab);
+
+  /** Read-only «پروفایل من» dialog opened from the account menu. */
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
 
 
   const fetchSubmissions = async () => {
@@ -441,6 +466,23 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
     }
   };
 
+  /**
+   * Single entry point for selecting a section, used by the tab bar itself, by
+   * the clickable summary cards and by the account menu.
+   *
+   * The «کاربران» tab used to refresh its data from an `onClick` on its own
+   * `TabsTrigger`. That trigger is gone (the top card replaces it), so the very
+   * same two fetches live here instead — the behaviour is unchanged no matter
+   * which control opens the section.
+   */
+  const goToTab = (tab: string) => {
+    if (tab === "users") {
+      fetchClients();
+      fetchLastActivity();
+    }
+    setActiveTab(tab);
+  };
+
   if (loading) {
     return (
       <div className="p-8">
@@ -474,17 +516,88 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
                 خلاصه‌ای از وضعیت سیستم، کاربران و درخواست‌ها را اینجا می‌بینید.
               </p>
             </div>
-            <div className="flex items-center gap-2 rounded-full border border-border bg-card/70 px-4 py-2 text-sm text-muted-foreground backdrop-blur">
-              <Calendar className="h-4 w-4 text-primary" />
-              <span className="persian-body">
-                {getJalaliMonthName(currentDate.jm)}{" "}
-                {currentDate.jy.toLocaleString("fa-IR", { useGrouping: false })}
-              </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 rounded-full border border-border bg-card/70 px-4 py-2 text-sm text-muted-foreground backdrop-blur">
+                <Calendar className="h-4 w-4 text-primary" />
+                <span className="persian-body">
+                  {getJalaliMonthName(currentDate.jm)}{" "}
+                  {currentDate.jy.toLocaleString("fa-IR", {
+                    useGrouping: false,
+                  })}
+                </span>
+              </div>
+
+              {/*
+                Account menu — the single profile/user menu of the panel. It
+                collects everything that is about the signed-in manager rather
+                than about management: their profile, their personal employee
+                dashboard and their password. The two last entries used to be
+                top-level tabs; only their entry point moved here, the tab
+                content and its logic are untouched.
+              */}
+              <DropdownMenu dir="rtl">
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 rounded-full border border-border bg-card/70 py-1.5 pe-2 ps-3 text-sm text-muted-foreground backdrop-blur transition-colors hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background data-[state=open]:bg-card data-[state=open]:text-foreground"
+                  >
+                    <span className="persian-body flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                      {getInitials(profile.full_name)}
+                    </span>
+                    <span className="persian-body hidden max-w-[10rem] truncate sm:inline">
+                      {profile.full_name || "پروفایل"}
+                    </span>
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+                </DropdownMenuTrigger>
+
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel className="persian-body text-muted-foreground">
+                    حساب کاربری
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="persian-body gap-2"
+                    /*
+                      Deferred by one tick on purpose: the menu and the dialog
+                      are both focus-trapping layers, and opening the dialog in
+                      the same commit that unmounts the menu makes the menu's
+                      focus-restore fight the dialog's autofocus. Letting the
+                      menu finish closing first keeps focus in the dialog.
+                    */
+                    onSelect={() =>
+                      window.setTimeout(() => setProfileDialogOpen(true), 0)
+                    }
+                  >
+                    <UserCircle className="h-4 w-4 text-muted-foreground" />
+                    پروفایل من
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="persian-body gap-2"
+                    onSelect={() => goToTab("calendar")}
+                  >
+                    <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
+                    پنل شخصی من
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="persian-body gap-2"
+                    onSelect={() => goToTab("settings")}
+                  >
+                    <KeyRound className="h-4 w-4 text-muted-foreground" />
+                    تغییر رمز عبور
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>
 
-        {/* Stats Cards */}
+        {/*
+          Stats Cards — these are now the primary shortcuts into the sections
+          they summarise. Each one opens the section's existing tab; no new page
+          or route is involved. Design, accents, icons and hints are unchanged;
+          `onClick` alone turns a card into a full-card button.
+        */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
           <StatCard
             title="کل درخواست‌ها"
@@ -492,6 +605,8 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
             icon={MessageSquare}
             accent="teal"
             hint="درخواست‌های تماس"
+            onClick={() => goToTab("submissions")}
+            ariaLabel="رفتن به بخش درخواست‌ها"
           />
           <StatCard
             title="تعداد کاربران"
@@ -499,6 +614,8 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
             icon={Users}
             accent="orange"
             hint="کاربران ثبت‌شده"
+            onClick={() => goToTab("users")}
+            ariaLabel="رفتن به بخش کاربران"
           />
           <StatCard
             title="مقالات منتشر شده"
@@ -506,6 +623,8 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
             icon={FileText}
             accent="sky"
             hint="محتوای فعال بلاگ"
+            onClick={() => goToTab("blogs")}
+            ariaLabel="رفتن به بخش مقالات"
           />
           <StatCard
             title="خدمات ارائه شده"
@@ -513,6 +632,8 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
             icon={Briefcase}
             accent="rose"
             hint="سرویس‌های تعریف‌شده"
+            onClick={() => goToTab("services")}
+            ariaLabel="رفتن به بخش خدمات"
           />
           <StatCard
             title="پروژه‌ها"
@@ -520,42 +641,30 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
             icon={ClipboardCheck}
             accent="indigo"
             hint="پروژه‌های نمونه‌کار"
+            onClick={() => goToTab("projects")}
+            ariaLabel="رفتن به بخش پروژه‌ها"
           />
         </div>
 
         {/* Main Content */}
-        <Tabs defaultValue={defaultTab} className="space-y-6" dir="rtl">
-          <TabsList className="grid w-full grid-cols-4 h-20">
-            <TabsTrigger value="submissions" className="persian-body">
-              درخواست‌ها
-            </TabsTrigger>
-            <TabsTrigger
-              value="users"
-              className="persian-body"
-              onClick={() => {
-                fetchClients();
-                fetchLastActivity();
-              }}
-            >
-              کاربران
-            </TabsTrigger>
+        <Tabs
+          value={activeTab}
+          onValueChange={goToTab}
+          className="space-y-6"
+          dir="rtl"
+        >
+          {/*
+            Only «کارمندان» is left in the tab bar. The duplicated entries —
+            درخواست‌ها / کاربران / مقالات / خدمات / پروژه‌ها — are reached from
+            the summary cards above, and پنل شخصی من / تغییر رمز عبور from the
+            account menu in the header. Every `TabsContent` below is untouched
+            and every section is still reachable; only the duplicated *triggers*
+            were removed. Height drops from `h-20` to `h-14` because the bar no
+            longer wraps onto a second row.
+          */}
+          <TabsList className="grid w-full grid-cols-1 h-14">
             <TabsTrigger value="workers" className="persian-body">
               کارمندان
-            </TabsTrigger>
-            <TabsTrigger value="calendar" className="persian-body">
-              پنل شخصی من
-            </TabsTrigger>
-            <TabsTrigger value="blogs" className="persian-body">
-              مقالات
-            </TabsTrigger>
-            <TabsTrigger value="services" className="persian-body">
-              خدمات
-            </TabsTrigger>
-            <TabsTrigger value="projects" className="persian-body">
-              پروژه‌ها
-            </TabsTrigger>
-            <TabsTrigger value="settings" className="persian-body">
-              تغییر رمز عبور
             </TabsTrigger>
           </TabsList>
 
@@ -958,6 +1067,54 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/*
+        «پروفایل من» — a read-only view of the signed-in manager's own account,
+        built from data this component already holds (`profile` and the auth
+        store `user`). No new page, route, API call or second profile system.
+      */}
+      <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="persian-heading text-xl">
+              پروفایل من
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <span className="persian-heading flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg font-bold text-primary">
+                {getInitials(profile.full_name)}
+              </span>
+              <div className="min-w-0">
+                <p className="persian-heading truncate font-semibold text-foreground">
+                  {profile.full_name || "بدون نام"}
+                </p>
+                <div className="mt-1">{getRoleBadge(profile.role)}</div>
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-border p-4">
+              <div className="flex items-center justify-between gap-3">
+                <span className="persian-body text-sm text-muted-foreground">
+                  ایمیل
+                </span>
+                <span className="truncate text-sm text-foreground">
+                  {user?.email || "—"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="persian-body text-sm text-muted-foreground">
+                  نقش کاربری
+                </span>
+                <span className="persian-body text-sm text-foreground">
+                  {profile.role}
+                </span>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Contact Request Modal */}
       <ContactRequestModal

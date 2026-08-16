@@ -85,11 +85,22 @@ interface StatCardProps {
   /** optional short caption under the value */
   hint?: string;
   className?: string;
+  /**
+   * Makes the WHOLE card a navigation control. When provided the card renders
+   * as a `<button>` instead of a `<div>`, so it is clickable and keyboard
+   * focusable end to end (Enter / Space) — not just the label or the icon.
+   * Omit it and the card stays exactly as before: a purely presentational div.
+   */
+  onClick?: () => void;
+  /** Screen-reader label for the clickable variant; defaults to `title`. */
+  ariaLabel?: string;
 }
 
 /**
  * Premium KPI card — colored accent rail, icon chip, soft gradient glow,
- * large tabular value and a subtle hover lift. Purely presentational.
+ * large tabular value and a subtle hover lift.
+ *
+ * Presentational by default; pass `onClick` to turn it into a navigation card.
  */
 export const StatCard = ({
   title,
@@ -98,17 +109,33 @@ export const StatCard = ({
   accent = "teal",
   hint,
   className,
+  onClick,
+  ariaLabel,
 }: StatCardProps) => {
   const a = ACCENTS[accent];
 
-  return (
-    <div
-      className={cn(
-        "group relative overflow-hidden rounded-xl border border-border bg-card p-5",
-        "shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md",
-        className
-      )}
-    >
+  /** Shared shell — identical for both the static and the clickable variant. */
+  const shell = cn(
+    "group relative overflow-hidden rounded-xl border border-border bg-card p-5",
+    "shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md",
+    className
+  );
+
+  /**
+   * Extra affordances for the clickable variant only: pointer cursor, a tinted
+   * border and a deeper shadow on hover, plus a visible keyboard focus ring.
+   * `text-start` keeps the RTL text alignment a <button> would otherwise
+   * centre, and `w-full` keeps the card filling its grid cell.
+   */
+  const interactive = cn(
+    "w-full text-start cursor-pointer",
+    "hover:border-primary/40 hover:shadow-lg active:translate-y-0",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+    "focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+  );
+
+  const body = (
+    <>
       {/* corner glow */}
       <div
         className={cn(
@@ -154,8 +181,23 @@ export const StatCard = ({
           <Icon className="h-5 w-5" />
         </span>
       </div>
-    </div>
+    </>
   );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={ariaLabel ?? title}
+        className={cn(shell, interactive)}
+      >
+        {body}
+      </button>
+    );
+  }
+
+  return <div className={shell}>{body}</div>;
 };
 
 export default StatCard;
