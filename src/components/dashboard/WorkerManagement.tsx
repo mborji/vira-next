@@ -46,6 +46,7 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { apiClient } from "@/lib/api";
 import { WorkerDashboard } from "@/components/dashboard/WorkerDashboard";
+import { TimeLogTable } from "@/components/dashboard/TimeLogTable";
 import type { OverviewProfile } from "@/components/worker/overview/ProfileSummaryCard";
 import {
   getCurrentJalaliDate,
@@ -954,7 +955,7 @@ export const WorkerManagement: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="time-logs">
-          <Card>
+          <Card className="rounded-xl shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Clock className="h-5 w-5" />
@@ -962,46 +963,11 @@ export const WorkerManagement: React.FC = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>نام کارمند</TableHead>
-                    <TableHead>تاریخ</TableHead>
-                    <TableHead>ساعات کاری</TableHead>
-                    <TableHead>توضیحات</TableHead>
-                    <TableHead>عملیات</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {timeLogs.map((log) => (
-                    <TableRow key={log.id}>
-                      <TableCell className="font-medium">
-                        {log.worker_name}
-                      </TableCell>
-                      <TableCell>
-                        {convertToPersianDigits(formatDateDisplay(log.date))}
-                      </TableCell>
-                      <TableCell>
-                        {log.hours_worked
-                          ? convertToPersianDigits(
-                              log.hours_worked.substring(0, 5)
-                            )
-                          : "۰۰:۰۰"}
-                      </TableCell>
-                      <TableCell>{log.description || "-"}</TableCell>
-                      <TableCell>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openEditDialog(log)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <TimeLogTable
+                logs={timeLogs}
+                workers={workers}
+                onEdit={(log) => openEditDialog(log as TimeLog)}
+              />
             </CardContent>
           </Card>
         </TabsContent>
