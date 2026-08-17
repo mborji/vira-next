@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +48,10 @@ import { toast } from "@/hooks/use-toast";
 import { apiClient } from "@/lib/api";
 import { WorkerDashboard } from "@/components/dashboard/WorkerDashboard";
 import { TimeLogTable } from "@/components/dashboard/TimeLogTable";
+import {
+  DayOffRequestTable,
+  type DayOffRequestRow,
+} from "@/components/dashboard/DayOffRequestTable";
 import type { OverviewProfile } from "@/components/worker/overview/ProfileSummaryCard";
 import {
   getCurrentJalaliDate,
@@ -63,7 +68,9 @@ import { cn, convertToPersianDigits, formatDecimalHoursToTime } from "@/lib/util
 import {
   ACCEPTED_DAY_OFF_HOURS,
   HOLIDAY_HOURS,
+  formatCount,
 } from "@/components/worker/overview/workerStats";
+import { ANNUAL_LEAVE_DAYS } from "@/components/worker/overview/monthlyWorkQuota";
 
 type DashboardSectionId =
   | "summary"
@@ -91,6 +98,27 @@ interface Worker {
   email: string;
   worker_type?: "full_time" | "part_time";
 }
+
+/**
+ * The server rejects an approval that would exceed the annual leave cap with a
+ * plain-English 400 (`…limit reached for Jalali year 1405 (max 26)`), which
+ * `ApiClient.handleResponse` rethrows verbatim. Showing the generic
+ * «خطا در بروزرسانی» there hides the one thing the manager needs to know.
+ *
+ * NOTE: the cap is written twice — `ANNUAL_LEAVE_DAYS` here and a literal `26`
+ * in `server/routes/workers.js`. The number in the message is read back from the
+ * server so the two can never disagree on screen.
+ */
+const describeLeaveError = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : "";
+  if (/limit reached/i.test(message)) {
+    const cap = Number(message.match(/max (\d+)/)?.[1] ?? ANNUAL_LEAVE_DAYS);
+    return `سقف مرخصی سالانه پر شده است — این کارمند تمام ${formatCount(
+      cap
+    )} روز مرخصی سال جلالی خود را استفاده کرده و درخواست دیگری قابل تأیید نیست.`;
+  }
+  return message || "خطا در بروزرسانی درخواست مرخصی";
+};
 
 const getInitials = (name: string): string => {
   const parts = (name || "").trim().split(/\s+/).filter(Boolean);
@@ -139,7 +167,6 @@ interface Holiday {
 export const WorkerManagement: React.FC = () => {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [timeLogs, setTimeLogs] = useState<TimeLog[]>([]);
-  const [dayOffRequests, setDayOffRequests] = useState<DayOffRequest[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [workerSummaries, setWorkerSummaries] = useState<WorkerSummary[]>([]);
   const [selectedTimeLog, setSelectedTimeLog] = useState<TimeLog | null>(null);
@@ -148,10 +175,10 @@ export const WorkerManagement: React.FC = () => {
   const [editStartTime2, setEditStartTime2] = useState("");
   const [editEndTime2, setEditEndTime2] = useState("");
   const [editDescription, setEditDescription] = useState("");
-  const [adminNotes, setAdminNotes] = useState("");
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(getCurrentJalaliDate());
   const [selectedWorkerId, setSelectedWorkerId] = useState("");
+  const [leaveStatusFilter, setLeaveStatusFilter] = useState("all");
   const [activeSection, setActiveSection] = useState("summary");
   const [holidayDate, setHolidayDate] = useState(() => ({
     jy: getCurrentJalaliDate().jy,
@@ -168,6 +195,104 @@ export const WorkerManagement: React.FC = () => {
 
   const currentDate = getCurrentJalaliDate();
 
+  const queryClient = useQueryClient();
+
+  // Declared above the effects on purpose: the `calculateWorkerSummaries` effect
+  // lists `dayOffRequests` in its dependency array, so a later `const` would
+  // throw a TDZ ReferenceError (same trap as `todayDateStr` in WorkerDashboard).
+
+  /**
+   * Leave requests are the one slice of this panel on TanStack Query. The month
+   * range is part of the key, so changing month or employee refetches, and a
+   * decision below only has to invalidate the key instead of re-running a
+   * hand-rolled fetch.
+   */
+  const leaveRange = useMemo(
+    () => ({
+      startDate: formatDateForDB(selectedMonth.jy, selectedMonth.jm, 1),
+      endDate: formatDateForDB(
+        selectedMonth.jy,
+        selectedMonth.jm,
+        getDaysInJalaliMonth(selectedMonth.jy, selectedMonth.jm)
+      ),
+    }),
+    [selectedMonth.jy, selectedMonth.jm]
+  );
+
+  const scopedWorkerId =
+    selectedWorkerId && selectedWorkerId !== "all" ? selectedWorkerId : "";
+
+  const dayOffQuery = useQuery({
+    queryKey: [
+      "day-off-requests",
+      leaveRange.startDate,
+      leaveRange.endDate,
+      scopedWorkerId || "all",
+    ],
+    enabled: workers.length > 0,
+    queryFn: async (): Promise<DayOffRequest[]> => {
+      const params: Record<string, string> = { ...leaveRange };
+      if (scopedWorkerId) params.workerId = scopedWorkerId;
+      const data = await apiClient.getDayOffRequests(params);
+      return (data || []).map((request: DayOffRequest) => ({
+        ...request,
+        status: request.status as DayOffRequest["status"],
+      }));
+    },
+  });
+
+  const dayOffRequests = useMemo(
+    () => dayOffQuery.data ?? [],
+    [dayOffQuery.data]
+  );
+
+  useEffect(() => {
+    if (!dayOffQuery.isError) return;
+    toast({
+      title: "خطا",
+      description: "خطا در دریافت درخواست‌های مرخصی",
+      variant: "destructive",
+    });
+  }, [dayOffQuery.isError]);
+
+  /** Only meaningful for a single employee — the endpoint counts one worker. */
+  const leaveRemainingQuery = useQuery({
+    queryKey: ["day-off-remaining", scopedWorkerId, selectedMonth.jy],
+    enabled: Boolean(scopedWorkerId),
+    queryFn: () =>
+      apiClient.getDayOffRequestRemaining({
+        workerId: scopedWorkerId,
+        year: String(selectedMonth.jy),
+      }),
+  });
+
+  const decideDayOff = useMutation({
+    mutationFn: ({
+      id,
+      status,
+    }: {
+      id: string;
+      status: "approved" | "rejected";
+    }) => apiClient.updateDayOffRequest(id, { status, admin_notes: null }),
+    onSuccess: (_data, { status }) => {
+      toast({
+        title: "موفقیت",
+        description: `درخواست مرخصی ${
+          status === "approved" ? "تایید" : "رد"
+        } شد`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["day-off-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["day-off-remaining"] });
+    },
+    onError: (error) => {
+      toast({
+        title: "خطا",
+        description: describeLeaveError(error),
+        variant: "destructive",
+      });
+    },
+  });
+
   useEffect(() => {
     fetchWorkers();
   }, []);
@@ -175,7 +300,6 @@ export const WorkerManagement: React.FC = () => {
   useEffect(() => {
     if (workers.length > 0) {
       fetchTimeLogs();
-      fetchDayOffRequests();
       fetchHolidays();
     }
   }, [selectedMonth.jy, selectedMonth.jm, selectedWorkerId, workers.length]);
@@ -255,36 +379,6 @@ export const WorkerManagement: React.FC = () => {
         variant: "destructive",
       });
       setTimeLogs([]);
-    }
-  };
-
-  const fetchDayOffRequests = async () => {
-    const startDate = formatDateForDB(selectedMonth.jy, selectedMonth.jm, 1);
-    const endDate = formatDateForDB(
-      selectedMonth.jy,
-      selectedMonth.jm,
-      getDaysInJalaliMonth(selectedMonth.jy, selectedMonth.jm)
-    );
-
-    try {
-      const params: any = { startDate, endDate };
-      if (selectedWorkerId && selectedWorkerId !== "all") {
-        params.workerId = selectedWorkerId;
-      }
-      const data = await apiClient.getDayOffRequests(params);
-      const typedData = (data || []).map((request) => ({
-        ...request,
-        status: request.status as "pending" | "approved" | "rejected",
-      }));
-      setDayOffRequests(typedData);
-    } catch (error) {
-      console.error("Error fetching day off requests:", error);
-      toast({
-        title: "خطا",
-        description: "خطا در دریافت درخواست‌های مرخصی",
-        variant: "destructive",
-      });
-      setDayOffRequests([]);
     }
   };
 
@@ -509,34 +603,6 @@ export const WorkerManagement: React.FC = () => {
     }
   };
 
-  const handleDayOffRequest = async (
-    requestId: string,
-    status: "approved" | "rejected"
-  ) => {
-    try {
-      await apiClient.updateDayOffRequest(requestId, {
-        status,
-        admin_notes: adminNotes || null,
-      });
-
-      toast({
-        title: "موفقیت",
-        description: `درخواست مرخصی ${
-          status === "approved" ? "تایید" : "رد"
-        } شد`,
-      });
-
-      setAdminNotes("");
-      fetchDayOffRequests();
-    } catch (error) {
-      toast({
-        title: "خطا",
-        description: "خطا در بروزرسانی درخواست مرخصی",
-        variant: "destructive",
-      });
-    }
-  };
-
   const resetHolidayForm = () => {
     setEditingHolidayId(null);
     setHolidayTitle("");
@@ -630,8 +696,17 @@ export const WorkerManagement: React.FC = () => {
     return formatJalaliDate(jalali);
   };
 
-  const pendingRequests = dayOffRequests.filter(
-    (req) => req.status === "pending"
+  const pendingRequests = useMemo(
+    () => dayOffRequests.filter((req) => req.status === "pending"),
+    [dayOffRequests]
+  );
+
+  const visibleLeaveRequests = useMemo(
+    () =>
+      leaveStatusFilter === "all"
+        ? dayOffRequests
+        : dayOffRequests.filter((req) => req.status === leaveStatusFilter),
+    [dayOffRequests, leaveStatusFilter]
   );
 
   // Drill-down: reuse the employee dashboard itself rather than
@@ -973,62 +1048,69 @@ export const WorkerManagement: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="day-off-requests">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Coffee className="h-5 w-5" />
-                همه درخواست‌های مرخصی
-              </CardTitle>
+          <Card className="rounded-xl shadow-sm">
+            <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-2xl font-bold">
+                  <Coffee className="h-5 w-5" />
+                  مدیریت مرخصی‌ها
+                </CardTitle>
+                {leaveRemainingQuery.data ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {`${formatCount(
+                      leaveRemainingQuery.data.approvedCount
+                    )} روز از ${formatCount(
+                      leaveRemainingQuery.data.limit
+                    )} روز مرخصی سال ${formatCount(
+                      leaveRemainingQuery.data.year
+                    )} استفاده شده — ${formatCount(
+                      leaveRemainingQuery.data.remaining
+                    )} روز باقی مانده.`}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    برای دیدن مانده مرخصی سالانه، یک کارمند را از بالای صفحه
+                    انتخاب کنید.
+                  </p>
+                )}
+              </div>
+              <Select
+                value={leaveStatusFilter}
+                onValueChange={setLeaveStatusFilter}
+              >
+                <SelectTrigger className="w-full sm:w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">همه وضعیت‌ها</SelectItem>
+                  <SelectItem value="pending">در انتظار</SelectItem>
+                  <SelectItem value="approved">تأیید شده</SelectItem>
+                  <SelectItem value="rejected">رد شده</SelectItem>
+                </SelectContent>
+              </Select>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>نام کارمند</TableHead>
-                    <TableHead>تاریخ مرخصی</TableHead>
-                    <TableHead>دلیل</TableHead>
-                    <TableHead>وضعیت</TableHead>
-                    <TableHead>تاریخ درخواست</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {dayOffRequests.map((request) => (
-                    <TableRow key={request.id}>
-                      <TableCell className="font-medium">
-                        {request.worker_name}
-                      </TableCell>
-                      <TableCell>
-                        {convertToPersianDigits(
-                          formatDateDisplay(request.request_date)
-                        )}
-                      </TableCell>
-                      <TableCell>{request.reason}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={
-                            request.status === "approved"
-                              ? "default"
-                              : request.status === "rejected"
-                              ? "destructive"
-                              : "outline"
-                          }
-                        >
-                          {request.status === "pending"
-                            ? "در انتظار"
-                            : request.status === "approved"
-                            ? "تایید شده"
-                            : "رد شده"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {convertToPersianDigits(
-                          formatDateDisplay(request.created_at)
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              {dayOffQuery.isPending && workers.length > 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  در حال دریافت درخواست‌ها…
+                </div>
+              ) : (
+                <DayOffRequestTable
+                  requests={visibleLeaveRequests as DayOffRequestRow[]}
+                  workers={workers}
+                  onDecide={(id, status) => decideDayOff.mutate({ id, status })}
+                  decidingId={
+                    decideDayOff.isPending
+                      ? decideDayOff.variables?.id ?? null
+                      : null
+                  }
+                  emptyLabel={
+                    leaveStatusFilter === "all"
+                      ? "برای این بازه هیچ درخواست مرخصی‌ای ثبت نشده است."
+                      : "درخواستی با این وضعیت در این بازه وجود ندارد."
+                  }
+                />
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1199,6 +1281,8 @@ export const WorkerManagement: React.FC = () => {
           </Card>
         </TabsContent>
 
+        {/* Kept deliberately: the same pending requests are also decidable inline
+            in «درخواست‌های مرخصی», but the user wants this tab to stay as it was. */}
         <TabsContent value="pending">
           <Card>
             <CardHeader>
@@ -1239,8 +1323,12 @@ export const WorkerManagement: React.FC = () => {
                         <div className="flex gap-2">
                           <Button
                             size="sm"
+                            disabled={decideDayOff.isPending}
                             onClick={() =>
-                              handleDayOffRequest(request.id, "approved")
+                              decideDayOff.mutate({
+                                id: request.id,
+                                status: "approved",
+                              })
                             }
                           >
                             <CheckCircle className="h-4 w-4" />
@@ -1248,8 +1336,12 @@ export const WorkerManagement: React.FC = () => {
                           <Button
                             size="sm"
                             variant="destructive"
+                            disabled={decideDayOff.isPending}
                             onClick={() =>
-                              handleDayOffRequest(request.id, "rejected")
+                              decideDayOff.mutate({
+                                id: request.id,
+                                status: "rejected",
+                              })
                             }
                           >
                             <XCircle className="h-4 w-4" />
@@ -1263,6 +1355,7 @@ export const WorkerManagement: React.FC = () => {
             </CardContent>
           </Card>
         </TabsContent>
+
       </Tabs>
 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>

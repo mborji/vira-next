@@ -245,7 +245,11 @@ const buildRow = (
   };
 };
 
-const WorkerCell: React.FC<{ name: string; email: string }> = ({
+/**
+ * Avatar + name + email, exported so «مدیریت مرخصی‌ها» renders an identical
+ * employee cell instead of copying the avatar-colour hash.
+ */
+export const WorkerCell: React.FC<{ name: string; email: string }> = ({
   name,
   email,
 }) => (
