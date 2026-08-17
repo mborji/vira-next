@@ -203,7 +203,7 @@ const EM_DASH = "—";
  */
 const COLUMNS = {
   worker: { width: "w-[220px]", align: "text-start" },
-  type: { width: "w-[92px]", align: "text-start" },
+  type: { width: "w-[92px]", align: "text-center" },
   date: { width: "w-[104px]", align: "text-center" },
   arrival: { width: "w-[76px]", align: "text-center" },
   departure: { width: "w-[76px]", align: "text-center" },
