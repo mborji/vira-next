@@ -12,68 +12,106 @@ export type StatAccent =
   | "indigo";
 
 interface AccentStyle {
-  /** left rail color */
+  /** Card fill. */
+  bg: string;
+  /** Card border. */
+  border: string;
+  /** Short rail hanging from the top edge. */
   rail: string;
-  /** icon chip background + icon color */
-  chip: string;
-  /** value number color */
+  /** Card title. */
+  title: string;
+  /** Icon chip fill. */
+  chipBg: string;
+  /** Icon colour inside the chip. */
+  chipFg: string;
+  /** The big number. */
   value: string;
-  /** soft corner glow gradient */
-  glow: string;
 }
 
 /**
- * Full, static Tailwind class strings per accent so the JIT compiler keeps them.
- * Every accent ships light + dark variants for both themes.
+ * The reference design's accent palette, hex for hex.
+ *
+ * Literal colours rather than Tailwind classes on purpose: the tinted card
+ * fill / border / rail / chip / value are five related shades per accent, and a
+ * class-per-shade table is both longer and at the mercy of the JIT purger.
+ * These are inline `style` values, so nothing can purge them.
+ *
+ * The five accents the reference actually shows (teal, orange, sky, rose,
+ * indigo) are copied exactly; emerald, amber and violet — used by the
+ * submissions and users sub-cards — follow the same recipe on their own hue.
  */
 const ACCENTS: Record<StatAccent, AccentStyle> = {
   teal: {
-    rail: "bg-teal-500",
-    chip: "bg-teal-500/10 text-teal-600 dark:text-teal-400",
-    value: "text-teal-600 dark:text-teal-400",
-    glow: "from-teal-500/[0.08]",
+    bg: "#F0FDFA",
+    border: "#CFF3EC",
+    rail: "#0D9488",
+    title: "#0F766E",
+    chipBg: "#CCFBF1",
+    chipFg: "#0D9488",
+    value: "#134E4A",
   },
   emerald: {
-    rail: "bg-emerald-500",
-    chip: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-    value: "text-emerald-600 dark:text-emerald-400",
-    glow: "from-emerald-500/[0.08]",
+    bg: "#ECFDF5",
+    border: "#C9F1DE",
+    rail: "#10B981",
+    title: "#047857",
+    chipBg: "#D1FAE5",
+    chipFg: "#059669",
+    value: "#064E3B",
   },
   amber: {
-    rail: "bg-amber-500",
-    chip: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-    value: "text-amber-600 dark:text-amber-400",
-    glow: "from-amber-500/[0.08]",
+    bg: "#FFFBEB",
+    border: "#FBEDCB",
+    rail: "#F59E0B",
+    title: "#B45309",
+    chipBg: "#FEF3C7",
+    chipFg: "#D97706",
+    value: "#78350F",
   },
   sky: {
-    rail: "bg-sky-500",
-    chip: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
-    value: "text-sky-600 dark:text-sky-400",
-    glow: "from-sky-500/[0.08]",
+    bg: "#EFF6FF",
+    border: "#D7E7FE",
+    rail: "#3B82F6",
+    title: "#1D4ED8",
+    chipBg: "#DBEAFE",
+    chipFg: "#3B82F6",
+    value: "#1E3A8A",
   },
   violet: {
-    rail: "bg-violet-500",
-    chip: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
-    value: "text-violet-600 dark:text-violet-400",
-    glow: "from-violet-500/[0.08]",
+    bg: "#F5F3FF",
+    border: "#E4DEFC",
+    rail: "#8B5CF6",
+    title: "#6D28D9",
+    chipBg: "#EDE9FE",
+    chipFg: "#8B5CF6",
+    value: "#4C1D95",
   },
   rose: {
-    rail: "bg-rose-500",
-    chip: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-    value: "text-rose-600 dark:text-rose-400",
-    glow: "from-rose-500/[0.08]",
+    bg: "#FFF1F3",
+    border: "#FBDDE2",
+    rail: "#F43F5E",
+    title: "#BE123C",
+    chipBg: "#FFE1E6",
+    chipFg: "#F43F5E",
+    value: "#881337",
   },
   orange: {
-    rail: "bg-orange-500",
-    chip: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
-    value: "text-orange-600 dark:text-orange-400",
-    glow: "from-orange-500/[0.08]",
+    bg: "#FFF7ED",
+    border: "#FBE7CB",
+    rail: "#F59E0B",
+    title: "#B45309",
+    chipBg: "#FEECC8",
+    chipFg: "#F59E0B",
+    value: "#7C2D12",
   },
   indigo: {
-    rail: "bg-indigo-500",
-    chip: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
-    value: "text-indigo-600 dark:text-indigo-400",
-    glow: "from-indigo-500/[0.08]",
+    bg: "#EEF0FF",
+    border: "#E2E4FB",
+    rail: "#6366F1",
+    title: "#4338CA",
+    chipBg: "#E0E3FF",
+    chipFg: "#6366F1",
+    value: "#312E81",
   },
 };
 
@@ -89,7 +127,7 @@ interface StatCardProps {
    * Makes the WHOLE card a navigation control. When provided the card renders
    * as a `<button>` instead of a `<div>`, so it is clickable and keyboard
    * focusable end to end (Enter / Space) — not just the label or the icon.
-   * Omit it and the card stays exactly as before: a purely presentational div.
+   * Omit it and the card stays purely presentational.
    */
   onClick?: () => void;
   /** Screen-reader label for the clickable variant; defaults to `title`. */
@@ -97,10 +135,14 @@ interface StatCardProps {
 }
 
 /**
- * Premium KPI card — colored accent rail, icon chip, soft gradient glow,
- * large tabular value and a subtle hover lift.
+ * KPI card of the management dashboard, in the reference design: a soft tinted
+ * surface, a short accent rail hanging from the top edge, a matching icon chip,
+ * the figure in the accent's darkest shade and a caption underneath.
  *
- * Presentational by default; pass `onClick` to turn it into a navigation card.
+ * The props are unchanged — `title`, `value`, `icon`, `accent`, `hint`,
+ * `className`, `onClick`, `ariaLabel` — so every call site keeps working and
+ * the eight accent names still mean the same eight hues. Only the rendering
+ * changed; the clickable variant is still opt-in through `onClick` alone.
  */
 export const StatCard = ({
   title,
@@ -114,73 +156,52 @@ export const StatCard = ({
 }: StatCardProps) => {
   const a = ACCENTS[accent];
 
-  /** Shared shell — identical for both the static and the clickable variant. */
+  /** Shared shell — identical for the static and the clickable variant. */
   const shell = cn(
-    "group relative overflow-hidden rounded-xl border border-border bg-card p-5",
-    "shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md",
+    "relative overflow-hidden rounded-2xl border p-[18px] pb-4 text-start",
+    "transition-all duration-300",
     className
-  );
-
-  /**
-   * Extra affordances for the clickable variant only: pointer cursor, a tinted
-   * border and a deeper shadow on hover, plus a visible keyboard focus ring.
-   * `text-start` keeps the RTL text alignment a <button> would otherwise
-   * centre, and `w-full` keeps the card filling its grid cell.
-   */
-  const interactive = cn(
-    "w-full text-start cursor-pointer",
-    "hover:border-primary/40 hover:shadow-lg active:translate-y-0",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-    "focus-visible:ring-offset-2 focus-visible:ring-offset-background"
   );
 
   const body = (
     <>
-      {/* corner glow */}
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-0 bg-gradient-to-br to-transparent",
-          a.glow
-        )}
+      {/*
+        Accent rail. `inset-inline-start` keeps it on the reading-side edge, so
+        it sits top-right under RTL exactly as the reference shows it.
+      */}
+      <span
         aria-hidden="true"
-      />
-      {/* accent rail (start edge, RTL-aware) */}
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-y-4 start-0 w-1 rounded-e-full",
-          a.rail
-        )}
-        aria-hidden="true"
+        className="pointer-events-none absolute top-0 h-1 w-11 rounded-b"
+        style={{ insetInlineStart: 20, background: a.rail }}
       />
 
-      <div className="relative flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="persian-body text-sm font-medium text-muted-foreground">
-            {title}
-          </p>
-          <p
-            className={cn(
-              "persian-heading mt-2 text-3xl font-bold leading-none [font-variant-numeric:tabular-nums]",
-              a.value
-            )}
-          >
-            {value}
-          </p>
-          {hint && (
-            <p className="persian-body mt-2 text-xs text-muted-foreground">
-              {hint}
-            </p>
-          )}
-        </div>
+      <div className="flex items-start justify-between gap-3">
         <span
-          className={cn(
-            "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-110",
-            a.chip
-          )}
+          className="persian-body text-[13px] font-semibold"
+          style={{ color: a.title }}
         >
-          <Icon className="h-5 w-5" />
+          {title}
+        </span>
+        <span
+          className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-xl"
+          style={{ background: a.chipBg, color: a.chipFg }}
+        >
+          <Icon className="h-[19px] w-[19px]" />
         </span>
       </div>
+
+      <div
+        className="persian-heading mt-1.5 text-3xl font-extrabold leading-none [font-variant-numeric:tabular-nums]"
+        style={{ color: a.value }}
+      >
+        {value}
+      </div>
+
+      {hint && (
+        <div className="persian-body mt-0.5 text-xs" style={{ color: "#6B7280" }}>
+          {hint}
+        </div>
+      )}
     </>
   );
 
@@ -190,14 +211,25 @@ export const StatCard = ({
         type="button"
         onClick={onClick}
         aria-label={ariaLabel ?? title}
-        className={cn(shell, interactive)}
+        className={cn(
+          shell,
+          "w-full cursor-pointer hover:-translate-y-1 hover:shadow-md",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          "active:translate-y-0"
+        )}
+        style={{ background: a.bg, borderColor: a.border }}
       >
         {body}
       </button>
     );
   }
 
-  return <div className={shell}>{body}</div>;
+  return (
+    <div className={shell} style={{ background: a.bg, borderColor: a.border }}>
+      {body}
+    </div>
+  );
 };
 
 export default StatCard;

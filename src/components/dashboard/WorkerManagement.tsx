@@ -69,8 +69,17 @@ import {
   ACCEPTED_DAY_OFF_HOURS,
   HOLIDAY_HOURS,
   formatCount,
+  formatHours,
 } from "@/components/worker/overview/workerStats";
 import { ANNUAL_LEAVE_DAYS } from "@/components/worker/overview/monthlyWorkQuota";
+// Presentation-only palette + the derived per-employee figures the redesigned
+// summary cards and the comparison charts read. Neither adds a request.
+import { DASH, TINTS, WORKER_TYPE_BADGE } from "./dashboardTheme";
+import {
+  buildManagerWorkerStats,
+  type ManagerWorkerStats,
+} from "./managerSummaryStats";
+import { ManagerComparisonCharts } from "./ManagerComparisonCharts";
 
 type DashboardSectionId =
   | "summary"
@@ -90,6 +99,18 @@ const DASHBOARD_SECTIONS: {
   { id: "holidays", label: "مدیریت تعطیلی‌ها", icon: Calendar },
   { id: "pending", label: "در انتظار بررسی", icon: ClipboardList },
 ];
+
+/**
+ * Toolbar chip styling of the reference design, shared by the three `Select`
+ * triggers so they line up with the month pill and the arrow buttons.
+ * Purely visual — it overrides shadcn's defaults through `twMerge`.
+ */
+const TOOLBAR_FIELD =
+  "h-[34px] rounded-[9px] border-[#E2E8F0] bg-white px-3.5 text-[13px] text-[#334155]";
+
+/** The two 34×34 month-arrow buttons. */
+const TOOLBAR_ICON_BUTTON =
+  "h-[34px] w-[34px] shrink-0 rounded-[9px] border-[#E2E8F0] bg-white p-0 text-[#64748B] hover:bg-[#F8FAFA] hover:text-[#0F172A]";
 
 interface Worker {
   id: string;
@@ -194,6 +215,12 @@ export const WorkerManagement: React.FC = () => {
   const [inspectedWorker, setInspectedWorker] = useState<Worker | null>(null);
 
   const currentDate = getCurrentJalaliDate();
+  /**
+   * `currentDate` is a fresh object on every render, so it can never be a stable
+   * `useMemo` dependency. These three primitives can — they only change when the
+   * day does.
+   */
+  const { jy: todayJy, jm: todayJm, jd: todayJd } = currentDate;
 
   const queryClient = useQueryClient();
 
@@ -709,6 +736,76 @@ export const WorkerManagement: React.FC = () => {
     [dayOffRequests, leaveStatusFilter]
   );
 
+  /**
+   * The extra per-employee figures the redesigned summary cards and the
+   * comparison charts show: required hours, balance, absences, late days and
+   * total delay.
+   *
+   * **No new data source.** Everything is derived in the browser from state this
+   * panel already holds for the selected month — `workerSummaries` (the existing
+   * credited hours / days worked / approved leave), `timeLogs`, `dayOffRequests`
+   * and `holidays`. The three figures the panel showed before are passed
+   * straight through, never recomputed, so they cannot drift.
+   */
+  const workerStatsById = useMemo(() => {
+    const map = new Map<string, ManagerWorkerStats>();
+
+    workerSummaries.forEach((summary) => {
+      const worker = workers.find(
+        (item) => item.user_id === summary.worker_id
+      );
+
+      map.set(
+        summary.worker_id,
+        buildManagerWorkerStats({
+          month: { jy: selectedMonth.jy, jm: selectedMonth.jm },
+          today: { jy: todayJy, jm: todayJm, jd: todayJd },
+          workerId: summary.worker_id,
+          // Part-timers are neither credited nor charged holiday hours — the
+          // same rule `calculateWorkerSummaries` above already applies.
+          countHolidayHours: worker?.worker_type !== "part_time",
+          timeLogs: timeLogs.filter(
+            (log) => log.worker_id === summary.worker_id
+          ),
+          dayOffRequests: dayOffRequests.filter(
+            (request) => request.worker_id === summary.worker_id
+          ),
+          holidays,
+          workedHours: summary.total_hours,
+          attendanceDays: summary.days_worked,
+          leaveDays: summary.approved_days_off,
+        })
+      );
+    });
+
+    return map;
+  }, [
+    workerSummaries,
+    workers,
+    timeLogs,
+    dayOffRequests,
+    holidays,
+    selectedMonth.jy,
+    selectedMonth.jm,
+    todayJy,
+    todayJm,
+    todayJd,
+  ]);
+
+  /** The same list, in the panel's own order, for the comparison charts. */
+  const comparisonRows = useMemo(
+    () =>
+      workerSummaries
+        .map((summary) => {
+          const stats = workerStatsById.get(summary.worker_id);
+          return stats ? { ...stats, name: summary.worker_name } : null;
+        })
+        .filter((row): row is ManagerWorkerStats & { name: string } =>
+          Boolean(row)
+        ),
+    [workerSummaries, workerStatsById]
+  );
+
   // Drill-down: reuse the employee dashboard itself rather than
   // re-implementing attendance, balance, delay and leave views here.
   if (inspectedWorker) {
@@ -743,19 +840,39 @@ export const WorkerManagement: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">مدیریت کارمندان</h2>
-        <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:justify-start">
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <Users className="h-4 w-4 text-muted-foreground" />
+    <div className="space-y-[18px]">
+      {/*
+        Heading first, toolbar second — the project's existing order, kept on
+        purpose. The reference file lists the toolbar first, but it is written
+        back-to-front throughout, and under the app's global `dir="rtl"` copying
+        that would push «مدیریت کارمندان» to the left edge.
+      */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <h2
+          className="persian-heading m-0 text-[21px] font-extrabold"
+          style={{ color: DASH.ink }}
+        >
+          مدیریت کارمندان
+        </h2>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center gap-2">
+            <span
+              className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] border"
+              style={{
+                background: DASH.card,
+                borderColor: DASH.line,
+                color: DASH.subtle,
+              }}
+            >
+              <Users className="h-4 w-4" />
+            </span>
             <Select
               value={selectedWorkerId || "all"}
               onValueChange={(value) =>
                 setSelectedWorkerId(value === "all" ? "" : value)
               }
             >
-              <SelectTrigger className="w-48">
+              <SelectTrigger className={cn(TOOLBAR_FIELD, "w-44")}>
                 <SelectValue placeholder="انتخاب کارمند" />
               </SelectTrigger>
               <SelectContent>
@@ -768,15 +885,24 @@ export const WorkerManagement: React.FC = () => {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <Calendar className="h-4 w-4 text-muted-foreground" />
+          <div className="flex items-center gap-2">
+            <span
+              className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] border"
+              style={{
+                background: DASH.card,
+                borderColor: DASH.line,
+                color: DASH.subtle,
+              }}
+            >
+              <Calendar className="h-4 w-4" />
+            </span>
             <Select
               value={selectedMonth.jy.toString()}
               onValueChange={(value) =>
                 setSelectedMonth({ ...selectedMonth, jy: parseInt(value) })
               }
             >
-              <SelectTrigger className="w-24">
+              <SelectTrigger className={cn(TOOLBAR_FIELD, "w-[86px]")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -796,7 +922,7 @@ export const WorkerManagement: React.FC = () => {
                 setSelectedMonth({ ...selectedMonth, jm: parseInt(value) })
               }
             >
-              <SelectTrigger className="w-32">
+              <SelectTrigger className={cn(TOOLBAR_FIELD, "w-[116px]")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -821,23 +947,38 @@ export const WorkerManagement: React.FC = () => {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="flex items-center gap-2">
+            {/*
+              «ماه قبل» sits on the right and points right, «ماه بعد» on the
+              left pointing left — the existing RTL-correct arrangement, kept.
+            */}
             <Button
               variant="outline"
               size="sm"
+              className={TOOLBAR_ICON_BUTTON}
+              aria-label="ماه قبل"
               onClick={() => navigateMonth("prev")}
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
-            <Badge variant="outline" className="min-w-[120px] text-center">
+            <span
+              className="persian-body flex h-[34px] min-w-[120px] items-center justify-center rounded-[9px] border px-4 text-[13px] font-semibold"
+              style={{
+                background: DASH.card,
+                borderColor: DASH.line,
+                color: DASH.body,
+              }}
+            >
               {getJalaliMonthName(selectedMonth.jm)}{" "}
               {selectedMonth.jy.toLocaleString("fa-IR", {
                 useGrouping: false,
               })}
-            </Badge>
+            </span>
             <Button
               variant="outline"
               size="sm"
+              className={TOOLBAR_ICON_BUTTON}
+              aria-label="ماه بعد"
               onClick={() => navigateMonth("next")}
             >
               <ChevronLeft className="h-4 w-4" />
@@ -846,13 +987,25 @@ export const WorkerManagement: React.FC = () => {
         </div>
       </div>
 
-      <Tabs value={activeSection} className="space-y-6" dir="rtl">
-        <Card className="p-4">
-          <p className="text-sm font-medium text-muted-foreground mb-3">
+      <Tabs value={activeSection} className="space-y-[18px]" dir="rtl">
+        {/*
+          «منوی بخش‌ها». The five entries keep the order they have always had —
+          خلاصه کارمندان first — which is `DASHBOARD_SECTIONS`. The reference
+          file lists them the other way round; that file is written back-to-front
+          and its order is deliberately ignored here.
+        */}
+        <div
+          className="rounded-2xl border px-[18px] py-4"
+          style={{ background: DASH.card, borderColor: DASH.cardLine }}
+        >
+          <p
+            className="persian-body mb-3 text-xs font-semibold"
+            style={{ color: DASH.faint }}
+          >
             منوی بخش‌ها
           </p>
           <div
-            className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2"
+            className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
             role="tablist"
             aria-label="منوی بخش‌ها"
           >
@@ -868,26 +1021,52 @@ export const WorkerManagement: React.FC = () => {
                   aria-selected={isActive}
                   onClick={() => setActiveSection(id)}
                   className={cn(
-                    "flex flex-col items-center justify-center gap-2 rounded-lg border-2 p-3 text-center transition-all min-h-[88px]",
-                    "hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                    isActive
-                      ? "border-primary bg-primary text-primary-foreground shadow-md"
-                      : "border-border bg-card text-foreground hover:border-primary/40 hover:bg-accent/50"
+                    "flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-xl p-4 text-center transition-all",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                    isActive ? "border-0 font-bold" : "border"
                   )}
+                  style={
+                    isActive
+                      ? {
+                          background: DASH.primaryDark,
+                          color: "#FFFFFF",
+                          boxShadow: "0 6px 16px rgba(15,118,110,.28)",
+                        }
+                      : {
+                          background: DASH.card,
+                          borderColor: DASH.tileLine,
+                          color: DASH.muted,
+                        }
+                  }
                 >
-                  <Icon
+                  <Icon className="h-5 w-5 shrink-0" />
+                  {/*
+                    `text-white` is REQUIRED on the selected tile, it is not a
+                    duplicate of the button's inline colour: `.persian-body` is a
+                    component-layer rule that applies `text-foreground`, and that
+                    beats the white the button passes down by inheritance — which
+                    left dark text on the green fill. A utility-layer class wins
+                    over the component layer, so it puts the label back to white.
+                  */}
+                  <span
                     className={cn(
-                      "h-5 w-5 shrink-0",
-                      isActive ? "text-primary-foreground" : "text-primary"
+                      "persian-body text-[13px] font-semibold leading-snug",
+                      isActive && "text-white"
                     )}
-                  />
-                  <span className="text-xs sm:text-sm font-medium leading-snug">
+                  >
                     {displayLabel}
                   </span>
                   {id === "pending" && pendingRequests.length > 0 && (
                     <Badge
                       variant={isActive ? "secondary" : "destructive"}
-                      className="text-[10px] px-1.5 py-0"
+                      className={cn(
+                        "px-1.5 py-0 text-[10px]",
+                        // Same reason: white count on a translucent white chip,
+                        // so every piece of text on a selected tile is white and
+                        // still readable against the green.
+                        isActive &&
+                          "border-transparent bg-white/20 text-white hover:bg-white/20"
+                      )}
                     >
                       {pendingRequests.length.toLocaleString("fa-IR")}
                     </Badge>
@@ -896,141 +1075,345 @@ export const WorkerManagement: React.FC = () => {
               );
             })}
           </div>
-        </Card>
-        <TabsContent value="summary">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5" />
-                خلاصه عملکرد کارمندان
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {workerSummaries.length === 0 ? (
-                <div className="py-16 text-center text-sm text-muted-foreground">
-                  کارمندی برای نمایش وجود ندارد
-                </div>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  {workerSummaries.map((summary) => {
-                    const worker = workers.find(
-                      (item) => item.user_id === summary.worker_id
-                    );
-                    const workerType = worker?.worker_type || "full_time";
+        </div>
+        <TabsContent value="summary" className="space-y-8">
+          {/*
+            «تحلیل و مقایسه مدیریتی» — new in this design, and the reference
+            places it above the employee list, so that is where it goes. It adds
+            no request: `comparisonRows` is derived from the month's data this
+            panel has already loaded.
+          */}
+          <ManagerComparisonCharts
+            rows={comparisonRows}
+            monthLabel={`${getJalaliMonthName(
+              selectedMonth.jm
+            )} ${selectedMonth.jy.toLocaleString("fa-IR", {
+              useGrouping: false,
+            })}`}
+          />
 
-                    return (
-                      <div
-                        key={summary.worker_id}
-                        className="flex flex-col overflow-hidden rounded-xl border border-border bg-gradient-to-br from-card to-primary/[0.04] p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-dark text-sm font-bold text-primary-foreground shadow-sm ring-2 ring-primary/15">
+          <section className="space-y-3.5">
+            <h3
+              className="persian-heading m-0 flex items-center gap-2 text-lg font-extrabold"
+              style={{ color: DASH.ink }}
+            >
+              <Users className="h-[19px] w-[19px]" style={{ color: DASH.primary }} />
+              خلاصه عملکرد کارمندان
+            </h3>
+
+            {workerSummaries.length === 0 ? (
+              <div
+                className="persian-body rounded-2xl border py-16 text-center text-sm"
+                style={{
+                  background: DASH.card,
+                  borderColor: DASH.cardLine,
+                  color: DASH.faint,
+                }}
+              >
+                کارمندی برای نمایش وجود ندارد
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {workerSummaries.map((summary) => {
+                  const worker = workers.find(
+                    (item) => item.user_id === summary.worker_id
+                  );
+                  const workerType = worker?.worker_type || "full_time";
+                  const badge = WORKER_TYPE_BADGE[workerType];
+                  const stats = workerStatsById.get(summary.worker_id);
+
+                  /**
+                   * Over quota → teal bar and a teal figure; under it → amber
+                   * bar and a red figure. With no quota for the month (a month
+                   * still in the future) the card simply reads as “on target”.
+                   */
+                  const onTarget =
+                    !stats || summary.total_hours >= stats.requiredHours;
+
+                  return (
+                    <div
+                      key={summary.worker_id}
+                      className="flex flex-col rounded-2xl border p-[18px] transition-all duration-300 hover:-translate-y-1 hover:shadow-md"
+                      style={{
+                        background: DASH.card,
+                        borderColor: DASH.cardLine,
+                      }}
+                    >
+                      {/* Identity — name block on the start side, type badge on the end side. */}
+                      <div className="flex items-start justify-between gap-2.5">
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <span
+                            className="persian-heading flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full text-[13px] font-bold text-white"
+                            style={{ background: DASH.primary }}
+                          >
                             {getInitials(summary.worker_name)}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate font-semibold text-foreground">
+                          </span>
+                          <div className="min-w-0">
+                            <b
+                              className="persian-heading block truncate text-sm font-extrabold"
+                              style={{ color: DASH.ink }}
+                            >
                               {summary.worker_name}
-                            </p>
+                            </b>
                             {worker?.email && (
-                              <p
+                              <span
                                 dir="ltr"
-                                className="truncate text-right text-xs text-muted-foreground"
+                                className="block truncate text-right text-[11px]"
+                                style={{ color: DASH.faint }}
                               >
                                 {worker.email}
-                              </p>
+                              </span>
                             )}
                           </div>
-                          <Badge
-                            className={cn(
-                              "shrink-0 border-transparent font-medium",
-                              workerType === "full_time"
-                                ? "bg-primary/10 text-primary hover:bg-primary/10"
-                                : "bg-accent/20 text-accent-foreground hover:bg-accent/20"
-                            )}
-                          >
-                            {workerType === "full_time" ? "تمام‌وقت" : "پاره‌وقت"}
-                          </Badge>
                         </div>
+                        <span
+                          className="persian-body shrink-0 whitespace-nowrap rounded-full px-[11px] py-1 text-[11px] font-semibold"
+                          style={{ background: badge.bg, color: badge.fg }}
+                        >
+                          {badge.label}
+                        </span>
+                      </div>
 
-                        <div className="mt-4 grid grid-cols-3 gap-2">
-                          <div className="rounded-lg border border-teal-200/70 bg-gradient-to-br from-teal-50 to-teal-100/40 p-3 text-center dark:border-teal-800/50 dark:from-teal-950/40 dark:to-teal-900/20">
-                            <Clock className="mx-auto mb-1 h-4 w-4 text-teal-600 dark:text-teal-400" />
-                            <div className="text-sm font-bold text-teal-900 dark:text-teal-100">
-                              {convertToPersianDigits(
-                                formatDecimalHoursToTime(summary.total_hours)
-                              )}
-                            </div>
-                            <div className="mt-0.5 text-[11px] text-teal-700/80 dark:text-teal-300/80">
-                              مجموع ساعات
-                            </div>
-                          </div>
-                          <div className="rounded-lg border border-sky-200/70 bg-gradient-to-br from-sky-50 to-sky-100/40 p-3 text-center dark:border-sky-800/50 dark:from-sky-950/40 dark:to-sky-900/20">
-                            <Calendar className="mx-auto mb-1 h-4 w-4 text-sky-600 dark:text-sky-400" />
-                            <div className="text-sm font-bold text-sky-900 dark:text-sky-100">
-                              {summary.days_worked.toLocaleString("fa-IR")}
-                            </div>
-                            <div className="mt-0.5 text-[11px] text-sky-700/80 dark:text-sky-300/80">
-                              روزهای کاری
-                            </div>
-                          </div>
-                          <div className="rounded-lg border border-amber-200/70 bg-gradient-to-br from-amber-50 to-amber-100/40 p-3 text-center dark:border-amber-800/50 dark:from-amber-950/40 dark:to-amber-900/20">
-                            <Coffee className="mx-auto mb-1 h-4 w-4 text-amber-600 dark:text-amber-400" />
-                            <div className="text-sm font-bold text-amber-900 dark:text-amber-100">
-                              {summary.approved_days_off.toLocaleString("fa-IR")}
-                            </div>
-                            <div className="mt-0.5 text-[11px] text-amber-700/80 dark:text-amber-300/80">
-                              مرخصی تایید شده
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 border-t border-border/60 pt-3">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="mb-3 w-full"
-                            disabled={!worker}
-                            onClick={() => worker && setInspectedWorker(worker)}
-                          >
-                            <Eye className="ms-2 h-4 w-4" />
-                            مشاهده جزئیات کارکرد
-                          </Button>
-                          <Label className="mb-1.5 block text-xs text-muted-foreground">
-                            نوع همکاری
-                          </Label>
-                          {worker ? (
-                            <Select
-                              value={workerType}
-                              onValueChange={(value) =>
-                                changeWorkerType(
-                                  worker,
-                                  value as "full_time" | "part_time"
-                                )
-                              }
-                            >
-                              <SelectTrigger className="w-full">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="full_time">تمام وقت</SelectItem>
-                                <SelectItem value="part_time">پاره وقت</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">-</span>
+                      {/* «کارکرد ماه» — credited hours against the month's quota. */}
+                      <div className="mt-3.5 flex items-center justify-between gap-2 text-xs">
+                        <span className="persian-body" style={{ color: DASH.subtle }}>
+                          کارکرد ماه
+                        </span>
+                        <b
+                          dir="ltr"
+                          className="[font-variant-numeric:tabular-nums]"
+                          style={{ color: onTarget ? DASH.primary : DASH.danger }}
+                        >
+                          {convertToPersianDigits(
+                            formatDecimalHoursToTime(summary.total_hours)
                           )}
+                          {" / "}
+                          {convertToPersianDigits(
+                            formatDecimalHoursToTime(stats?.requiredHours ?? 0)
+                          )}
+                        </b>
+                      </div>
+                      {/*
+                        No `direction` override here: the track inherits the
+                        app's RTL, so the fill grows from the start (right) edge
+                        the way every other bar on this page does.
+                      */}
+                      <div
+                        className="mt-1.5 h-2 overflow-hidden rounded-full"
+                        style={{ background: DASH.track }}
+                      >
+                        <span
+                          className="block h-full rounded-full transition-[width] duration-500"
+                          style={{
+                            width: `${stats?.completionPercent ?? 0}%`,
+                            background: onTarget ? DASH.primary : DASH.warning,
+                          }}
+                        />
+                      </div>
+
+                      {/*
+                        The three figures the panel has always shown, in the
+                        order it has always shown them: مجموع ساعات، روزهای
+                        کاری، مرخصی تایید شده. The reference lists them
+                        back-to-front; that order is ignored on purpose.
+                      */}
+                      <div className="mt-3.5 grid grid-cols-3 gap-2">
+                        <div
+                          className="rounded-xl border px-2 py-3 text-center"
+                          style={{
+                            background: TINTS.emerald.bg,
+                            borderColor: TINTS.emerald.border,
+                          }}
+                        >
+                          <Clock
+                            className="mx-auto h-[17px] w-[17px]"
+                            style={{ color: TINTS.emerald.icon }}
+                          />
+                          <div
+                            dir="ltr"
+                            className="persian-heading mt-1 text-[15px] font-extrabold"
+                            style={{ color: TINTS.emerald.value }}
+                          >
+                            {convertToPersianDigits(
+                              formatDecimalHoursToTime(summary.total_hours)
+                            )}
+                          </div>
+                          <div
+                            className="persian-body text-[10px]"
+                            style={{ color: TINTS.emerald.label }}
+                          >
+                            مجموع ساعات
+                          </div>
+                        </div>
+                        <div
+                          className="rounded-xl border px-2 py-3 text-center"
+                          style={{
+                            background: TINTS.sky.bg,
+                            borderColor: TINTS.sky.border,
+                          }}
+                        >
+                          <Calendar
+                            className="mx-auto h-[17px] w-[17px]"
+                            style={{ color: TINTS.sky.icon }}
+                          />
+                          <div
+                            className="persian-heading mt-1 text-[17px] font-extrabold"
+                            style={{ color: TINTS.sky.value }}
+                          >
+                            {summary.days_worked.toLocaleString("fa-IR")}
+                          </div>
+                          <div
+                            className="persian-body text-[10px]"
+                            style={{ color: TINTS.sky.label }}
+                          >
+                            روزهای کاری
+                          </div>
+                        </div>
+                        <div
+                          className="rounded-xl border px-2 py-3 text-center"
+                          style={{
+                            background: TINTS.amber.bg,
+                            borderColor: TINTS.amber.border,
+                          }}
+                        >
+                          <Coffee
+                            className="mx-auto h-[17px] w-[17px]"
+                            style={{ color: TINTS.amber.icon }}
+                          />
+                          <div
+                            className="persian-heading mt-1 text-[17px] font-extrabold"
+                            style={{ color: TINTS.amber.value }}
+                          >
+                            {summary.approved_days_off.toLocaleString("fa-IR")}
+                          </div>
+                          <div
+                            className="persian-body text-[10px]"
+                            style={{ color: TINTS.amber.label }}
+                          >
+                            مرخصی تایید شده
+                          </div>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+
+                      {/*
+                        خلاصه عملکرد — the dashed footnote row, in the order the
+                        panel asks for: حضور → تأخیر → اضافه‌کاری → غیبت, with
+                        کسری kept last so nothing that was already on the card is
+                        lost.
+
+                        Every figure comes from `stats`, which is derived from the
+                        month's own time logs, leave requests and holidays (see
+                        `managerSummaryStats.ts`). Nothing here is a placeholder,
+                        and no endpoint was added for it: غیبت is
+                        `absenceDays` — elapsed working days with neither a time
+                        log nor approved leave — and تأخیر is `lateDays`, working
+                        days clocked in after ۰۹:۳۰, both straight out of the
+                        employee dashboard's own `buildWorkerMonthStats`.
+                      */}
+                      {stats && (
+                        <div
+                          className="persian-body mt-3 flex flex-wrap gap-x-4 gap-y-2 border-t border-dashed pt-3 text-[11px]"
+                          style={{
+                            borderColor: DASH.cardLine,
+                            color: DASH.faint,
+                          }}
+                        >
+                          <span>
+                            حضور:{" "}
+                            <b style={{ color: DASH.primary }}>
+                              {formatCount(stats.attendanceDays)} روز
+                            </b>
+                          </span>
+                          <span>
+                            تأخیر:{" "}
+                            <b style={{ color: DASH.warning }}>
+                              {formatCount(stats.lateDays)} بار
+                            </b>
+                          </span>
+                          <span>
+                            اضافه‌کاری:{" "}
+                            <b style={{ color: DASH.success }}>
+                              {formatHours(stats.overtimeHours)} ساعت
+                            </b>
+                          </span>
+                          <span>
+                            غیبت:{" "}
+                            <b style={{ color: DASH.danger }}>
+                              {formatCount(stats.absenceDays)} روز
+                            </b>
+                          </span>
+                          <span>
+                            کسری:{" "}
+                            <b style={{ color: DASH.danger }}>
+                              {formatHours(stats.deficitHours)} ساعت
+                            </b>
+                          </span>
+                        </div>
+                      )}
+
+                      {/*
+                        Unchanged actions: the drill-down into the employee's own
+                        dashboard and the employment-type control. Restyled only.
+                      */}
+                      <div
+                        className="mt-3.5 border-t pt-3.5"
+                        style={{ borderColor: DASH.cardLine }}
+                      >
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mb-3 w-full rounded-[10px] border-[#E2E8F0] bg-white text-[#334155] hover:bg-[#F8FAFA]"
+                          disabled={!worker}
+                          onClick={() => worker && setInspectedWorker(worker)}
+                        >
+                          <Eye className="ms-2 h-4 w-4" />
+                          مشاهده جزئیات کارکرد
+                        </Button>
+                        <Label
+                          className="persian-body mb-1.5 block text-[11px]"
+                          style={{ color: DASH.faint }}
+                        >
+                          نوع همکاری
+                        </Label>
+                        {worker ? (
+                          <Select
+                            value={workerType}
+                            onValueChange={(value) =>
+                              changeWorkerType(
+                                worker,
+                                value as "full_time" | "part_time"
+                              )
+                            }
+                          >
+                            <SelectTrigger
+                              className={cn(TOOLBAR_FIELD, "w-full")}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="full_time">تمام وقت</SelectItem>
+                              <SelectItem value="part_time">پاره وقت</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span
+                            className="persian-body text-sm"
+                            style={{ color: DASH.faint }}
+                          >
+                            -
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         </TabsContent>
 
         <TabsContent value="time-logs">
-          <Card className="rounded-xl shadow-sm">
+          <Card className="rounded-2xl border-[#EAEEED] shadow-none">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Clock className="h-5 w-5" />
@@ -1048,7 +1431,7 @@ export const WorkerManagement: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="day-off-requests">
-          <Card className="rounded-xl shadow-sm">
+          <Card className="rounded-2xl border-[#EAEEED] shadow-none">
             <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="flex items-center gap-2 text-2xl font-bold">
@@ -1116,7 +1499,7 @@ export const WorkerManagement: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="holidays">
-          <Card>
+          <Card className="rounded-2xl border-[#EAEEED] shadow-none">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Calendar className="h-5 w-5" />
@@ -1284,7 +1667,7 @@ export const WorkerManagement: React.FC = () => {
         {/* Kept deliberately: the same pending requests are also decidable inline
             in «درخواست‌های مرخصی», but the user wants this tab to stay as it was. */}
         <TabsContent value="pending">
-          <Card>
+          <Card className="rounded-2xl border-[#EAEEED] shadow-none">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Coffee className="h-5 w-5" />

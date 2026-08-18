@@ -20,12 +20,16 @@ import {
   ChevronRight,
   Coffee,
   Search,
-  Activity,
   UserCircle,
   LayoutDashboard,
   KeyRound,
 } from "lucide-react";
-import { Card } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
@@ -57,14 +61,9 @@ import {
 } from "@/components/ui/dialog";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { AccountMenu } from "@/components/layout/AccountMenu";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+// The users list is `UsersTable` now — a mirror of «ساعات کاری»'s `TimeLogTable`
+// — so this file no longer builds a table of its own.
+import { UsersTable } from "./UsersTable";
 import { Label } from "../ui/label";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
@@ -75,12 +74,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
-import {
-  cn,
-  convertToPersianDigits,
-  formatDecimalHoursToTime,
-} from "@/lib/utils";
+import { convertToPersianDigits, formatDecimalHoursToTime } from "@/lib/utils";
 import { useWindowSize } from "../windowWidth/useWindowSize";
+// Presentation-only palette of the reference design. Colour strings, nothing else.
+import { DASH } from "./dashboardTheme";
 
 const MOBILE_WIDTH_THRESHOLD = 600;
 // NOTE: no local ACCEPTED_DAY_OFF_HOURS / HOLIDAY_HOURS here. If this panel ever
@@ -419,6 +416,20 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
   });
   const isUserFilterActive = normalizedUserQuery !== "" || roleFilter !== "all";
 
+  /**
+   * «آخرین فعالیت» already formatted, keyed by `user_id`.
+   *
+   * `lastActivityMap` and the way it is built are untouched — this only runs the
+   * existing `formatActivityDate` over it here, so `UsersTable` stays purely
+   * presentational and no second date convention can appear in the table.
+   */
+  const userActivityLabels = Object.fromEntries(
+    Object.entries(lastActivityMap).map(([userId, date]) => [
+      userId,
+      formatActivityDate(date),
+    ])
+  );
+
   const openSubmissionModal = (submission: ContactSubmission) => {
     setSelectedSubmission(submission);
     setModalOpen(true);
@@ -490,28 +501,56 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
 
   return (
     <>
-      <div className="p-6 space-y-8">
-        {/* Header */}
-        <div className="relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-primary/10 via-card to-card p-7">
-          <div
-            className="pointer-events-none absolute -top-16 -start-16 h-52 w-52 rounded-full bg-primary/10 blur-3xl"
-            aria-hidden="true"
-          />
-          <div className="relative flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="persian-body mb-2 text-xs font-semibold uppercase tracking-widest text-primary">
+      {/*
+        Page shell of the reference design — the soft grey canvas and the
+        1480px reading column. It lives here rather than in
+        `pages/Dashboard.tsx` because that file also renders the employee and
+        client dashboards, which this redesign deliberately leaves alone.
+      */}
+      <div className="min-h-screen" style={{ background: DASH.page }}>
+      <div className="mx-auto w-full max-w-[1480px] space-y-5 px-4 pb-[70px] pt-6 sm:px-[30px]">
+        {/*
+          Header.
+
+          COLOUR ONLY: this banner keeps the project's original fill and border
+          — the `from-primary/10 via-card to-card` gradient on `border-border` —
+          rather than the reference design's mint gradient. Everything else here
+          (radius, padding, text, sizes, spacing, layout) is the new design and
+          must stay as it is. It is deliberately the ONE surface on this page
+          that still runs on the theme tokens; nothing else changes colour.
+        */}
+        <div className="relative overflow-hidden rounded-[20px] border border-border bg-gradient-to-br from-primary/10 via-card to-card px-5 py-6 sm:px-[34px] sm:py-[30px]">
+          <div className="relative flex flex-wrap items-start justify-between gap-5">
+            <div className="flex flex-col gap-2.5">
+              <span
+                className="persian-body text-xs font-bold"
+                style={{ color: DASH.primary }}
+              >
                 داشبورد مدیریتی
-              </p>
-              <h1 className="persian-heading text-3xl font-bold text-foreground">
+              </span>
+              <h1
+                className="persian-heading m-0 text-[26px] font-extrabold"
+                style={{ color: DASH.ink }}
+              >
                 خوش آمدید، {profile.full_name || "ادمین"} 👋
               </h1>
-              <p className="persian-body mt-2 text-muted-foreground">
+              <p
+                className="persian-body m-0 max-w-[520px] text-sm leading-[1.9]"
+                style={{ color: DASH.subtle }}
+              >
                 خلاصه‌ای از وضعیت سیستم، کاربران و درخواست‌ها را اینجا می‌بینید.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2 rounded-full border border-border bg-card/70 px-4 py-2 text-sm text-muted-foreground backdrop-blur">
-                <Calendar className="h-4 w-4 text-primary" />
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div
+                className="flex items-center gap-2 rounded-[10px] border px-3 py-2 text-[13px]"
+                style={{
+                  background: DASH.card,
+                  borderColor: DASH.line,
+                  color: DASH.body,
+                }}
+              >
+                <Calendar className="h-4 w-4" style={{ color: DASH.primary }} />
                 <span className="persian-body">
                   {getJalaliMonthName(currentDate.jm)}{" "}
                   {currentDate.jy.toLocaleString("fa-IR", {
@@ -529,7 +568,15 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
                 top-level tabs; only their entry point moved here, the tab
                 content and its logic are untouched.
               */}
-              <AccountMenu fullName={profile.full_name}>
+              <AccountMenu
+                fullName={profile.full_name}
+                /*
+                  Presentation only — the shared component keeps its own role
+                  guard, its own entries and its own logout. `className` just
+                  restyles the trigger chip to match the month chip beside it.
+                */
+                className="rounded-[10px] border-[#E2E8F0] bg-white px-3 py-2 text-[13px] text-[#334155] hover:bg-white"
+              >
                 <DropdownMenuItem
                   className="persian-body gap-2"
                   /*
@@ -592,7 +639,7 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
           or route is involved. Design, accents, icons and hints are unchanged;
           `onClick` alone turns a card into a full-card button.
         */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <StatCard
             title="کل درخواست‌ها"
             value={stats.total.toLocaleString("fa-IR")}
@@ -664,7 +711,7 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
           <TabsContent value="submissions">
             <div className="space-y-6">
               {/* Submission Stats Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <StatCard
                   title="کل درخواست‌ها"
                   value={stats.total.toLocaleString("fa-IR")}
@@ -778,7 +825,7 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
           <TabsContent value="users">
             <div className="space-y-6">
               {/* User Stats Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 <StatCard
                   title="کل کاربران"
                   value={clientStats.total.toLocaleString("fa-IR")}
@@ -811,49 +858,65 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
                 />
               </div>
 
-              {/* Users Table */}
-              <Card>
-                <div className="p-6 space-y-5">
-                  {/* Header: title + search + role filter */}
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h2 className="persian-heading text-xl font-semibold text-foreground">
-                        لیست کاربران سیستم
-                      </h2>
-                      <p className="persian-body mt-1 text-sm text-muted-foreground">
-                        {clientStats.total.toLocaleString("fa-IR")} کاربر ثبت‌شده
-                        {isUserFilterActive
-                          ? ` · ${filteredClients.length.toLocaleString(
-                              "fa-IR"
-                            )} نتیجه`
-                          : ""}
-                      </p>
-                    </div>
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                      <div className="relative w-full sm:w-64">
-                        <Search className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                        <Input
-                          value={userSearch}
-                          onChange={(e) => setUserSearch(e.target.value)}
-                          placeholder="جستجوی نام یا ایمیل..."
-                          className="persian-body pe-9"
-                          aria-label="جستجوی کاربر"
-                        />
-                      </div>
-                      <Select value={roleFilter} onValueChange={setRoleFilter}>
-                        <SelectTrigger className="persian-body w-full sm:w-40">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">همه نقش‌ها</SelectItem>
-                          <SelectItem value="admin">مدیر</SelectItem>
-                          <SelectItem value="worker">کارمند</SelectItem>
-                          <SelectItem value="client">کاربر</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+              {/*
+                Users Table.
 
+                Same shell as «ساعات کاری» in the management panel:
+                `Card` → `CardHeader` → `CardTitle` (icon + title) → `CardContent`,
+                with the card-level filters living in the header the way
+                «مدیریت مرخصی‌ها» already does. The table itself is `UsersTable`,
+                which mirrors `TimeLogTable` column for column in structure —
+                header rhythm, row height, pills, icon-only action, empty state
+                and the mobile card fallback. Only the columns differ.
+
+                Neither the data, the filters, the fetches nor the two write
+                handlers (`openClientModal`, `updateUserStatus`) changed; the
+                table only receives them.
+              */}
+              <Card className="rounded-2xl border-[#EAEEED] shadow-none">
+                <CardHeader className="gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                  {/* `min-w-0` so the title shrinks instead of overflowing the
+                      card's padding when the search box and the role filter sit
+                      beside it. */}
+                  <div className="min-w-0">
+                    <CardTitle className="flex items-center gap-2">
+                      <Users className="h-5 w-5" />
+                      لیست کاربران سیستم
+                    </CardTitle>
+                    <p className="persian-body mt-1 text-xs text-muted-foreground">
+                      {clientStats.total.toLocaleString("fa-IR")} کاربر ثبت‌شده
+                      {isUserFilterActive
+                        ? ` · ${filteredClients.length.toLocaleString(
+                            "fa-IR"
+                          )} نتیجه`
+                        : ""}
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <div className="relative w-full sm:w-64">
+                      <Search className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={userSearch}
+                        onChange={(e) => setUserSearch(e.target.value)}
+                        placeholder="جستجوی نام یا ایمیل..."
+                        className="persian-body pe-9"
+                        aria-label="جستجوی کاربر"
+                      />
+                    </div>
+                    <Select value={roleFilter} onValueChange={setRoleFilter}>
+                      <SelectTrigger className="persian-body w-full sm:w-44">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">همه نقش‌ها</SelectItem>
+                        <SelectItem value="admin">مدیر</SelectItem>
+                        <SelectItem value="worker">کارمند</SelectItem>
+                        <SelectItem value="client">کاربر</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </CardHeader>
+                <CardContent>
                   {clientsLoading ? (
                     <div className="flex flex-col items-center justify-center py-16">
                       <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted border-t-primary" />
@@ -897,130 +960,25 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
                       </Button>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto rounded-xl border border-border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-muted/50 hover:bg-muted/50">
-                            <TableHead className="persian-body">کاربر</TableHead>
-                            <TableHead className="persian-body">نقش</TableHead>
-                            <TableHead className="persian-body">وضعیت</TableHead>
-                            <TableHead className="persian-body">
-                              تعداد درخواست
-                            </TableHead>
-                            <TableHead className="persian-body">
-                              آخرین فعالیت
-                            </TableHead>
-                            <TableHead className="persian-body">
-                              تاریخ عضویت
-                            </TableHead>
-                            <TableHead className="persian-body text-left">
-                              عملیات
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredClients.map((client) => {
-                            const lastActivity = lastActivityMap[client.user_id];
-                            return (
-                              <TableRow
-                                key={client.id}
-                                className="transition-colors hover:bg-muted/40"
-                              >
-                                <TableCell>
-                                  <div className="flex items-center gap-3">
-                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-                                      {getInitials(client.full_name)}
-                                    </div>
-                                    <div className="min-w-0">
-                                      <p className="persian-body truncate font-semibold text-foreground">
-                                        {client.full_name || "بدون نام"}
-                                      </p>
-                                      <p
-                                        dir="ltr"
-                                        className="truncate text-right text-xs text-muted-foreground"
-                                      >
-                                        {client.email || "بدون ایمیل"}
-                                      </p>
-                                    </div>
-                                  </div>
-                                </TableCell>
-                                <TableCell>{getRoleBadge(client.role)}</TableCell>
-                                <TableCell>
-                                  <div className="flex items-center gap-2">
-                                    <Switch
-                                      checked={client.is_active}
-                                      onCheckedChange={(checked) =>
-                                        updateUserStatus(client, checked)
-                                      }
-                                      aria-label={
-                                        client.is_active
-                                          ? "غیرفعال کردن کاربر"
-                                          : "فعال کردن کاربر"
-                                      }
-                                    />
-                                    <span
-                                      className={cn(
-                                        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
-                                        client.is_active
-                                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                                          : "bg-orange-500/10 text-orange-600 dark:text-orange-400"
-                                      )}
-                                    >
-                                      <span
-                                        className={cn(
-                                          "h-1.5 w-1.5 rounded-full",
-                                          client.is_active
-                                            ? "bg-emerald-500"
-                                            : "bg-orange-500"
-                                        )}
-                                      />
-                                      {client.is_active ? "فعال" : "غیرفعال"}
-                                    </span>
-                                  </div>
-                                </TableCell>
-                                <TableCell className="persian-body">
-                                  <div className="flex items-center gap-2">
-                                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                                    {client.submission_count.toLocaleString(
-                                      "fa-IR"
-                                    ) || "۰"}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="persian-body">
-                                  {lastActivity ? (
-                                    <span className="inline-flex items-center gap-1.5 text-sm text-foreground">
-                                      <Activity className="h-3.5 w-3.5 text-emerald-500" />
-                                      {formatActivityDate(lastActivity)}
-                                    </span>
-                                  ) : (
-                                    <span className="text-sm text-muted-foreground">
-                                      بدون فعالیت
-                                    </span>
-                                  )}
-                                </TableCell>
-                                <TableCell className="persian-body text-sm text-muted-foreground">
-                                  {new Date(
-                                    client.created_at
-                                  ).toLocaleDateString("fa-IR")}
-                                </TableCell>
-                                <TableCell className="text-left">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => openClientModal(client)}
-                                  >
-                                    <Eye className="w-4 h-4 ml-1" />
-                                    مشاهده
-                                  </Button>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
+                    <UsersTable
+                      clients={filteredClients}
+                      /*
+                        Both date columns are formatted HERE, by the component
+                        that already owned that rule, so the table introduces no
+                        second date convention. `formatActivityDate` is the
+                        existing helper — same local-time `Date`, same Jalali
+                        conversion — now used for «تاریخ عضویت» too so the two
+                        columns and «ساعات کاری» all read ۱۴۰۵/۰۵/۰۱.
+                      */
+                      activityLabelByUserId={userActivityLabels}
+                      formatJoinedAt={(client) =>
+                        formatActivityDate(client.created_at)
+                      }
+                      onView={openClientModal}
+                      onToggleActive={updateUserStatus}
+                    />
                   )}
-                </div>
+                </CardContent>
               </Card>
             </div>
           </TabsContent>
@@ -1062,6 +1020,7 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
             <ChangePassword />
           </TabsContent>
         </Tabs>
+      </div>
       </div>
 
       {/*

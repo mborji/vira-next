@@ -99,8 +99,18 @@ interface BuildYearBalanceInput {
   countHolidayHours?: boolean;
 }
 
-/** Share of a month that has already elapsed, measured in non-Friday days. */
-const elapsedShareOfMonth = (jy: number, jm: number, jd: number): number => {
+/**
+ * Share of a month that has already elapsed, measured in non-Friday days.
+ *
+ * Exported — behaviour untouched — so the manager panel can pro-rate a running
+ * month's quota by the very same rule the employee balance uses. Copying it
+ * there is exactly how the two views would drift apart.
+ */
+export const elapsedShareOfMonth = (
+  jy: number,
+  jm: number,
+  jd: number
+): number => {
   const daysInMonth = getDaysInJalaliMonth(jy, jm);
   let total = 0;
   let elapsed = 0;
