@@ -1,3 +1,4 @@
+import { DASH } from "@/components/dashboard/dashboardTheme";
 import { OverviewPanel } from "./OverviewPanel";
 import { formatCount, formatHours } from "./workerStats";
 
@@ -20,8 +21,16 @@ export const WorkloadRatioCard = ({
 
   return (
     <OverviewPanel title="نسبت کارکرد به موظفی" className={className}>
+      {/*
+        The track inherits the page's `dir="rtl"`, so the fill starts at the
+        right edge and grows leftwards — which is what an RTL progress bar has
+        to do. The reference forces `direction:ltr` here and grows it the other
+        way; that is corrected on purpose, exactly as it was for the manager's
+        comparison charts.
+      */}
       <div
-        className="h-2.5 w-full overflow-hidden rounded-full bg-muted"
+        className="h-2.5 w-full overflow-hidden rounded-full"
+        style={{ background: DASH.track }}
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}
@@ -31,17 +40,23 @@ export const WorkloadRatioCard = ({
         {/* Same green as the «مانده مرخصی» bar in `LeaveSummaryCard` —
             keep the two in step if either one is ever restyled. */}
         <div
-          className="h-full rounded-full bg-emerald-500 transition-[width] duration-700 ease-out"
-          style={{ width: `${barWidth}%` }}
+          className="h-full rounded-full transition-[width] duration-700 ease-out"
+          style={{ width: `${barWidth}%`, background: DASH.success }}
         />
       </div>
 
+      {/* Percentage first (right in RTL), hours second — the project's order. */}
       <div className="mt-2 flex items-center justify-between gap-3">
-        <span className="persian-body text-xs font-medium text-muted-foreground [font-variant-numeric:tabular-nums]">
+        <span
+          className="persian-heading text-xs font-bold [font-variant-numeric:tabular-nums]"
+          style={{ color: DASH.success }}
+        >
           {formatCount(completionPercent)}٪
         </span>
-        {/* Emerald to match the bar above and the «مانده مرخصی» block. */}
-        <span className="persian-heading text-xs font-bold text-emerald-700 [font-variant-numeric:tabular-nums] dark:text-emerald-400">
+        <span
+          className="persian-body text-xs [font-variant-numeric:tabular-nums]"
+          style={{ color: DASH.subtle }}
+        >
           {formatHours(workedHours)} / {formatHours(requiredHours)} ساعت
         </span>
       </div>

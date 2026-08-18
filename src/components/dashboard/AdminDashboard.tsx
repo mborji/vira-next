@@ -1000,6 +1000,14 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
               title="پنل شخصی من"
               showPasswordTab={false}
               showAccountMenu={false}
+              /*
+                `embedded` is presentation only: this page already draws the
+                grey canvas and the «خوش آمدید» banner above, so the employee
+                dashboard renders its plain heading row instead of a second
+                banner. Everything below the header is identical to what a
+                regular employee sees.
+              */
+              embedded
               className="p-0"
             />
           </TabsContent>

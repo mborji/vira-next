@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -15,11 +14,13 @@ import {
   TrendingUp,
   ChevronLeft,
   ChevronRight,
+  LayoutGrid,
+  Lock,
+  type LucideIcon,
 } from "lucide-react";
 import { WorkerCalendar } from "@/components/worker/WorkerCalendar";
 import { WorkerOverview } from "@/components/worker/overview/WorkerOverview";
 import { MetricDetailDialog } from "@/components/worker/overview/MetricDetailDialog";
-import { CLICKABLE_CARD_CLASS } from "@/components/worker/overview/OverviewStatCard";
 import type { OverviewProfile } from "@/components/worker/overview/ProfileSummaryCard";
 import type {
   MetricDetailInput,
@@ -33,7 +34,7 @@ import { useAuthStore } from "@/hooks/useAuthStore";
 import { AccountMenu } from "@/components/layout/AccountMenu";
 import { apiClient } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { ChangePassword } from "@/components/auth/ChangePassword";
 import {
   formatDateForDB,
@@ -42,6 +43,18 @@ import {
   getJalaliMonthName,
 } from "@/utils/jalali";
 import { cn, convertToPersianDigits, formatDecimalHoursToTime } from "@/lib/utils";
+// Presentation only — the management dashboard's palette and its shared
+// toolbar / section-tile styling, so the employee dashboard and the manager's
+// panel are literally the same design system. Nothing here participates in a
+// calculation, a fetch, a role check or a routing decision.
+import {
+  DASH,
+  SECTION_TILE_BASE,
+  TOOLBAR_FIELD,
+  TOOLBAR_ICON_BUTTON,
+  sectionTileStyle,
+} from "./dashboardTheme";
+import { StatCard } from "./StatCard";
 import { useWindowSize } from "../windowWidth/useWindowSize";
 
 const MOBILE_WIDTH_THRESHOLD = 600;
@@ -69,6 +82,8 @@ interface Holiday {
   holiday_date: string;
   title?: string | null;
 }
+
+type WorkerSectionId = "overview" | "calendar" | "settings";
 
 export interface WorkerDashboardProps {
   /**
@@ -98,6 +113,17 @@ export interface WorkerDashboardProps {
    * It is hidden automatically while inspecting somebody else's records.
    */
   showAccountMenu?: boolean;
+  /**
+   * PRESENTATION ONLY. `true` when this dashboard is rendered inside another
+   * panel that already provides the page canvas and its own «خوش آمدید» banner
+   * — the manager's «پنل شخصی من» tab and the manager's employee drill-down.
+   *
+   * Embedded, the component drops the page background and the welcome banner
+   * and falls back to a plain heading + toolbar row, so a screen never shows
+   * two hero banners stacked on top of each other. Everything below the header
+   * — the KPI cards, «منوی بخش‌ها» and the panels — is identical either way.
+   */
+  embedded?: boolean;
   className?: string;
 }
 
@@ -109,6 +135,20 @@ export interface WorkerDashboardProps {
  *  - a manager's own personal panel inside the admin dashboard,
  *  - a manager drilling into an employee from the management panel, in which
  *    case everything is read-only (see `isInspecting`).
+ *
+ * ─── ORDER IS A CONTRACT ───────────────────────────────────────────────────
+ * The 2026-08-18 redesign rebuilt this screen's LOOK against the reference
+ * design and left its data, its endpoints and its roles exactly as they were.
+ * The render order is the project's own and must not be reshuffled:
+ *
+ *   header → 4 KPI cards (ساعات امروز · مجموع این ماه · روزهای کاری ·
+ *   درخواست مرخصی) → «منوی بخش‌ها» (نمای کلی · تقویم کاری من · تغییر رمز عبور)
+ *   → the selected panel
+ *
+ * The reference HTML lists several of its rows back-to-front; that file is the
+ * source of the LOOK only, never of the order. Same rule as the management
+ * panel — don't "fix" it back.
+ * ───────────────────────────────────────────────────────────────────────────
  */
 export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
   workerId,
@@ -116,6 +156,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
   title,
   showPasswordTab,
   showAccountMenu = true,
+  embedded = false,
   className,
 }) => {
   const { user } = useAuthStore();
@@ -132,6 +173,14 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
   const [totalHours, setTotalHours] = useState(0);
   /** Summary card whose detail dialog is open, `null` when nothing is open. */
   const [activeMetric, setActiveMetric] = useState<MetricKey | null>(null);
+  /**
+   * Which panel «منوی بخش‌ها» is showing. This used to be Radix's own
+   * uncontrolled `defaultValue`; the section menu needs to know which tile is
+   * selected, so the value is held here instead. Presentation state only — the
+   * default is still «نمای کلی» and no tab is a route.
+   */
+  const [activeSection, setActiveSection] =
+    useState<WorkerSectionId>("overview");
 
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const currentDate = getCurrentJalaliDate();
@@ -421,194 +470,333 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
     ]
   );
 
-  /** Makes a summary card behave like a button for mouse and keyboard alike. */
-  const metricCardProps = (metric: MetricKey, label: string) => ({
-    role: "button" as const,
-    tabIndex: 0,
-    title: `نمایش جزئیات ${label}`,
-    "aria-label": `نمایش جزئیات ${label}`,
-    onClick: () => setActiveMetric(metric),
-    onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        setActiveMetric(metric);
-      }
-    },
-    className: CLICKABLE_CARD_CLASS,
-  });
-
   const withPasswordTab = showPasswordTab ?? !isInspecting;
 
-  return (
-    <div className={cn("space-y-6 p-6", className)}>
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-foreground">
-          {title ??
-            (isInspecting
-              ? displayedProfile.fullName || "جزئیات کارکرد"
-              : "داشبورد کارمند")}
-        </h1>
-        <div className="flex items-center gap-4">
-          {isAdmin && (
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-              <Select
-                value={selectedMonth.jy.toString()}
-                onValueChange={(value) =>
-                  setSelectedMonth({ ...selectedMonth, jy: parseInt(value) })
-                }
-              >
-                <SelectTrigger className="w-24">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from(
-                    { length: 10 },
-                    (_, i) => currentDate.jy - 5 + i
-                  ).map((year) => (
-                    <SelectItem key={year} value={year.toString()}>
-                      {year}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={selectedMonth.jm.toString()}
-                onValueChange={(value) =>
-                  setSelectedMonth({ ...selectedMonth, jm: parseInt(value) })
-                }
-              >
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[
-                    "فروردین",
-                    "اردیبهشت",
-                    "خرداد",
-                    "تیر",
-                    "مرداد",
-                    "شهریور",
-                    "مهر",
-                    "آبان",
-                    "آذر",
-                    "دی",
-                    "بهمن",
-                    "اسفند",
-                  ].map((month, index) => (
-                    <SelectItem key={index + 1} value={(index + 1).toString()}>
-                      {month}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => navigateMonth("prev")}
-              disabled={!canNavigate("prev")}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-            <div className="text-sm font-medium min-w-32 text-center">
-              {getJalaliMonthName(selectedMonth.jm)}{" "}
-              {selectedMonth.jy.toLocaleString("fa-IR", { useGrouping: false })}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => navigateMonth("next")}
-              disabled={!canNavigate("next")}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-          </div>
+  const headingText =
+    title ??
+    (isInspecting
+      ? displayedProfile.fullName || "جزئیات کارکرد"
+      : "داشبورد کارمند");
 
-          {/*
-            The employee's account menu — the same shared component the admin
-            panel and the client dashboard use, so «خروج از حساب کاربری» is in
-            the same place for everyone. Hidden when this dashboard is embedded
-            in a host that has its own menu, and while a manager is inspecting
-            somebody else's records (the menu would then sit next to another
-            person's name).
-          */}
-          {showAccountMenu && !isInspecting && <AccountMenu />}
+  /**
+   * «منوی بخش‌ها» — the three panels, in the order this dashboard has always
+   * had them. «تغییر رمز عبور» is still gated by `withPasswordTab`, the same
+   * flag the tab trigger used; no new section, no new permission.
+   */
+  const sections: { id: WorkerSectionId; label: string; icon: LucideIcon }[] = [
+    { id: "overview", label: "نمای کلی", icon: LayoutGrid },
+    {
+      id: "calendar",
+      label: isInspecting ? "تقویم کاری" : "تقویم کاری من",
+      icon: Calendar,
+    },
+  ];
+  if (withPasswordTab) {
+    sections.push({ id: "settings", label: "تغییر رمز عبور", icon: Lock });
+  }
+
+  /** Month toolbar — the reference's 34px chips, shared with the manager panel. */
+  const toolbar = (
+    <div className="flex flex-wrap items-center gap-2.5">
+      {isAdmin && (
+        <div className="flex items-center gap-2">
+          <span
+            className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] border"
+            style={{
+              background: DASH.card,
+              borderColor: DASH.line,
+              color: DASH.subtle,
+            }}
+          >
+            <Calendar className="h-4 w-4" />
+          </span>
+          <Select
+            value={selectedMonth.jy.toString()}
+            onValueChange={(value) =>
+              setSelectedMonth({ ...selectedMonth, jy: parseInt(value) })
+            }
+          >
+            <SelectTrigger className={cn(TOOLBAR_FIELD, "w-[86px]")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Array.from({ length: 10 }, (_, i) => currentDate.jy - 5 + i).map(
+                (year) => (
+                  <SelectItem key={year} value={year.toString()}>
+                    {year}
+                  </SelectItem>
+                )
+              )}
+            </SelectContent>
+          </Select>
+          <Select
+            value={selectedMonth.jm.toString()}
+            onValueChange={(value) =>
+              setSelectedMonth({ ...selectedMonth, jm: parseInt(value) })
+            }
+          >
+            <SelectTrigger className={cn(TOOLBAR_FIELD, "w-[116px]")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[
+                "فروردین",
+                "اردیبهشت",
+                "خرداد",
+                "تیر",
+                "مرداد",
+                "شهریور",
+                "مهر",
+                "آبان",
+                "آذر",
+                "دی",
+                "بهمن",
+                "اسفند",
+              ].map((month, index) => (
+                <SelectItem key={index + 1} value={(index + 1).toString()}>
+                  {month}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-      </div>
+      )}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-        <Card {...metricCardProps("today", "ساعات امروز")}>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">ساعات امروز</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {convertToPersianDigits(formatDecimalHoursToTime(hoursToday))}{" "}
-              ساعت
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {hoursToday > 0 ? "ثبت شده برای امروز" : "برای امروز ثبت نشده"}
-            </p>
-          </CardContent>
-        </Card>
-        <Card {...metricCardProps("worked", "مجموع این ماه")}>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">مجموع این ماه</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {convertToPersianDigits(formatDecimalHoursToTime(totalHours))}{" "}
-              ساعت
-            </div>
-            <p className="text-xs text-muted-foreground">ساعات کاری ماه جاری</p>
-          </CardContent>
-        </Card>
-        <Card {...metricCardProps("attendance", "روزهای کاری")}>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">روزهای کاری</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {daysWorked.toLocaleString("fa-IR")} روز
-            </div>
-            <p className="text-xs text-muted-foreground">از ابتدای ماه</p>
-          </CardContent>
-        </Card>
-        <Card {...metricCardProps("pendingLeave", "درخواست مرخصی")}>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">درخواست مرخصی</CardTitle>
-            <Coffee className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {pendingRequests.toLocaleString("fa-IR")}
-            </div>
-            <p className="text-xs text-muted-foreground">در انتظار بررسی</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Tabs defaultValue="overview" className="space-y-4" dir="rtl">
-        <TabsList
-          className={cn(
-            "grid w-full",
-            withPasswordTab ? "grid-cols-3" : "grid-cols-2"
-          )}
+      <div className="flex items-center gap-2">
+        {/*
+          «ماه قبل» sits on the right and points right, «ماه بعد» on the left
+          pointing left — the existing RTL-correct arrangement, kept.
+        */}
+        <Button
+          variant="outline"
+          size="sm"
+          className={TOOLBAR_ICON_BUTTON}
+          aria-label="ماه قبل"
+          onClick={() => navigateMonth("prev")}
+          disabled={!canNavigate("prev")}
         >
-          <TabsTrigger value="overview">نمای کلی</TabsTrigger>
-          <TabsTrigger value="calendar">
-            {isInspecting ? "تقویم کاری" : "تقویم کاری من"}
-          </TabsTrigger>
-          {withPasswordTab && (
-            <TabsTrigger value="settings">تغییر رمز عبور</TabsTrigger>
-          )}
-        </TabsList>
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+        <span
+          className="persian-body flex h-[34px] min-w-[120px] items-center justify-center rounded-[9px] border px-4 text-[13px] font-semibold"
+          style={{
+            background: DASH.card,
+            borderColor: DASH.line,
+            color: DASH.body,
+          }}
+        >
+          {getJalaliMonthName(selectedMonth.jm)}{" "}
+          {selectedMonth.jy.toLocaleString("fa-IR", { useGrouping: false })}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          className={TOOLBAR_ICON_BUTTON}
+          aria-label="ماه بعد"
+          onClick={() => navigateMonth("next")}
+          disabled={!canNavigate("next")}
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/*
+        The employee's account menu — the same shared component the admin
+        panel and the client dashboard use, so «خروج از حساب کاربری» is in
+        the same place for everyone. Hidden when this dashboard is embedded
+        in a host that has its own menu, and while a manager is inspecting
+        somebody else's records (the menu would then sit next to another
+        person's name).
+      */}
+      {showAccountMenu && !isInspecting && (
+        <AccountMenu className="rounded-[10px] border-[#E2E8F0] bg-white px-3 py-2 text-[13px] text-[#334155] hover:bg-white" />
+      )}
+    </div>
+  );
+
+  const content = (
+    <div className={cn("space-y-5", className)}>
+      {embedded ? (
+        /* Embedded: a plain heading row — the host already shows the banner. */
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <h1
+            className="persian-heading text-[22px] font-extrabold"
+            style={{ color: DASH.ink }}
+          >
+            {headingText}
+          </h1>
+          {toolbar}
+        </div>
+      ) : (
+        /*
+          Welcome banner.
+
+          COLOUR ONLY: this is the very same surface the manager's dashboard
+          uses — the project's `from-primary/10 via-card to-card` gradient on
+          `border-border`, at the same 20px radius and the same padding — so the
+          two «خوش آمدید» boxes are indistinguishable. The reference file's mint
+          gradient is deliberately NOT used here, exactly as it is not used
+          there. Keep the two in step if either is ever restyled.
+        */
+        <div className="relative overflow-hidden rounded-[20px] border border-border bg-gradient-to-br from-primary/10 via-card to-card px-5 py-6 sm:px-[34px] sm:py-[30px]">
+          <div className="relative flex flex-wrap items-start justify-between gap-5">
+            <div className="flex flex-col gap-2.5">
+              <span
+                className="persian-body text-xs font-bold"
+                style={{ color: DASH.primary }}
+              >
+                {headingText}
+              </span>
+              <h1
+                className="persian-heading m-0 text-[26px] font-extrabold"
+                style={{ color: DASH.ink }}
+              >
+                خوش آمدید، {displayedProfile.fullName || "کاربر"} 👋
+              </h1>
+              <p
+                className="persian-body m-0 max-w-[520px] text-sm leading-[1.9]"
+                style={{ color: DASH.subtle }}
+              >
+                خلاصه‌ای از کارکرد، حضور و مرخصی‌های خود را در این ماه اینجا
+                می‌بینید.
+              </p>
+            </div>
+            {toolbar}
+          </div>
+        </div>
+      )}
+
+      {/*
+        KPI cards — the same `StatCard` the management dashboard's five cards
+        use, so a card is a card on both screens. The four keep their existing
+        order and their existing behaviour: clicking one still opens that
+        metric's `MetricDetailDialog`, nothing else.
+      */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          title="ساعات امروز"
+          value={`${convertToPersianDigits(
+            formatDecimalHoursToTime(hoursToday)
+          )} ساعت`}
+          icon={Clock}
+          accent="teal"
+          hint={hoursToday > 0 ? "ثبت شده برای امروز" : "برای امروز ثبت نشده"}
+          onClick={() => setActiveMetric("today")}
+          ariaLabel="نمایش جزئیات ساعات امروز"
+        />
+        <StatCard
+          title="مجموع این ماه"
+          value={`${convertToPersianDigits(
+            formatDecimalHoursToTime(totalHours)
+          )} ساعت`}
+          icon={TrendingUp}
+          accent="sky"
+          hint="ساعات کاری ماه جاری"
+          onClick={() => setActiveMetric("worked")}
+          ariaLabel="نمایش جزئیات مجموع این ماه"
+        />
+        <StatCard
+          title="روزهای کاری"
+          value={`${daysWorked.toLocaleString("fa-IR")} روز`}
+          icon={Calendar}
+          accent="orange"
+          hint="از ابتدای ماه"
+          onClick={() => setActiveMetric("attendance")}
+          ariaLabel="نمایش جزئیات روزهای کاری"
+        />
+        <StatCard
+          title="درخواست مرخصی"
+          value={pendingRequests.toLocaleString("fa-IR")}
+          icon={Coffee}
+          accent="indigo"
+          hint="در انتظار بررسی"
+          onClick={() => setActiveMetric("pendingLeave")}
+          ariaLabel="نمایش جزئیات درخواست‌های مرخصی"
+        />
+      </div>
+
+      <Tabs
+        value={activeSection}
+        onValueChange={(value) => setActiveSection(value as WorkerSectionId)}
+        className="space-y-[18px]"
+        dir="rtl"
+      >
+        {/*
+          «منوی بخش‌ها» — the section switcher of the reference design, the very
+          same card the management panel renders. It replaces the old `TabsList`
+          and switches the very same `TabsContent`s; `Tabs` needs no `TabsList`
+          for that, the controlled `value` is enough.
+
+          The three entries keep the order they have always had: نمای کلی ·
+          تقویم کاری من · تغییر رمز عبور.
+        */}
+        <div
+          className="rounded-2xl border px-[18px] py-4"
+          style={{ background: DASH.card, borderColor: DASH.cardLine }}
+        >
+          <p
+            className="persian-body mb-3 text-xs font-semibold"
+            style={{ color: DASH.faint }}
+          >
+            منوی بخش‌ها
+          </p>
+          {/*
+            One column PER SECTION, so the tiles always fill the row edge to
+            edge and never leave a dead third column.
+
+            A regular employee has three sections and gets `sm:grid-cols-3` —
+            exactly the layout they already had. The manager's «پنل شخصی من» and
+            the employee drill-down hide «تغییر رمز عبور» (`withPasswordTab`),
+            so there the row is two tiles wide and would otherwise stop
+            two-thirds of the way across. This is the only difference between
+            the two, and it follows from the section count rather than from any
+            role check — no new permission logic.
+          */}
+          <div
+            className={cn(
+              "grid grid-cols-2 gap-3",
+              sections.length >= 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"
+            )}
+            role="tablist"
+            aria-label="منوی بخش‌ها"
+          >
+            {sections.map(({ id, label, icon: Icon }) => {
+              const isActive = activeSection === id;
+
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => setActiveSection(id)}
+                  className={cn(
+                    SECTION_TILE_BASE,
+                    isActive ? "border-0 font-bold" : "border"
+                  )}
+                  style={sectionTileStyle(isActive)}
+                >
+                  <Icon className="h-5 w-5 shrink-0" />
+                  {/*
+                    `text-white` is REQUIRED on the selected tile, it is not a
+                    duplicate of the button's inline colour: `.persian-body` is
+                    a component-layer rule that applies `text-foreground`, and
+                    that beats the white the button passes down by inheritance.
+                    A utility-layer class wins over the component layer.
+                  */}
+                  <span
+                    className={cn(
+                      "persian-body text-[13px] font-semibold leading-snug",
+                      isActive && "text-white"
+                    )}
+                  >
+                    {label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <TabsContent value="overview">
           <WorkerOverview
@@ -667,6 +855,21 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
         onClose={() => setActiveMetric(null)}
         data={metricDetailInput}
       />
+    </div>
+  );
+
+  if (embedded) return content;
+
+  /*
+    Page shell of the reference design — the soft grey canvas and the 1480px
+    reading column, identical to the management dashboard's. Only the standalone
+    employee page renders it; embedded, the host already provides one.
+  */
+  return (
+    <div className="min-h-screen" style={{ background: DASH.page }}>
+      <div className="mx-auto w-full max-w-[1480px] px-4 pb-[70px] pt-6 sm:px-[30px]">
+        {content}
+      </div>
     </div>
   );
 };

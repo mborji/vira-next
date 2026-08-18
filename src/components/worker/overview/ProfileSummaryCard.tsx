@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { DASH, WORKER_TYPE_BADGE } from "@/components/dashboard/dashboardTheme";
 import { getInitials } from "./workerStats";
 
 export interface OverviewProfile {
@@ -15,15 +16,20 @@ const ROLE_LABELS: Record<string, string> = {
   client: "مشتری",
 };
 
-const ROLE_TONES: Record<string, string> = {
-  super_admin: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-300",
-  admin: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
-  worker: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
-  client: "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300",
+/**
+ * Role pill colours, in the reference design's flat-tint style. They mirror the
+ * `TINTS` families of `dashboardTheme.ts` (fuchsia has no tint of its own, so
+ * «مدیر ارشد» keeps a matching hand-picked pair).
+ */
+const ROLE_TONES: Record<string, { bg: string; fg: string }> = {
+  super_admin: { bg: "#FDF4FF", fg: "#A21CAF" },
+  admin: { bg: "#F5F3FF", fg: "#6D28D9" },
+  worker: { bg: "#EEF0FF", fg: "#4338CA" },
+  client: { bg: "#F1F5F9", fg: "#334155" },
 };
 
 const pill =
-  "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold";
+  "inline-flex items-center rounded-full px-[11px] py-1 text-[11px] font-semibold";
 
 interface ProfileSummaryCardProps {
   profile: OverviewProfile;
@@ -33,6 +39,12 @@ interface ProfileSummaryCardProps {
 /**
  * Identity card of the employee the panel is currently showing:
  * avatar with initials, full name, email and role / contract badges.
+ *
+ * Layout follows the reference — a 56px round avatar beside the name block
+ * rather than above it. The avatar stays the FIRST child so it sits on the
+ * reading edge (right) under the app's global `dir="rtl"`; the reference file
+ * lists it last, but that file is written back-to-front throughout and its
+ * order is deliberately ignored here.
  */
 export const ProfileSummaryCard = ({
   profile,
@@ -40,54 +52,60 @@ export const ProfileSummaryCard = ({
 }: ProfileSummaryCardProps) => {
   const { fullName, email, role, workerType } = profile;
   const roleLabel = role ? ROLE_LABELS[role] : undefined;
+  const roleTone = role ? ROLE_TONES[role] : undefined;
+  const typeBadge = workerType ? WORKER_TYPE_BADGE[workerType] : undefined;
 
   return (
     <div
-      className={cn(
-        "rounded-xl border border-border bg-card p-6 shadow-sm",
-        className
-      )}
+      className={cn("rounded-2xl border bg-white p-5", className)}
+      style={{ borderColor: DASH.cardLine }}
     >
-      <span
-        aria-hidden="true"
-        className="flex h-14 w-14 items-center justify-center rounded-full bg-teal-100 text-base font-bold tracking-widest text-teal-700 dark:bg-teal-500/15 dark:text-teal-300"
-      >
-        {getInitials(fullName, email)}
-      </span>
+      <div className="flex items-center gap-3.5">
+        <span
+          aria-hidden="true"
+          className="persian-heading flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-xl font-extrabold"
+          style={{ background: "#CCFBF1", color: DASH.primaryDark }}
+        >
+          {getInitials(fullName, email)}
+        </span>
 
-      <div className="mt-2 flex flex-col items-center gap-1.5 text-center">
-        <h3 className="persian-heading text-lg font-bold text-foreground">
-          {fullName || email || "کاربر"}
-        </h3>
-
-        {email && (
-          <a
-            href={`mailto:${email}`}
-            dir="ltr"
-            className="text-xs text-teal-600 transition-colors hover:text-teal-700 hover:underline dark:text-teal-400"
+        <div className="min-w-0">
+          <h3
+            className="persian-heading truncate text-base font-bold"
+            style={{ color: DASH.ink }}
           >
-            {email}
-          </a>
-        )}
+            {fullName || email || "کاربر"}
+          </h3>
 
-        <div className="flex flex-wrap items-center justify-center gap-2 pt-0.5">
-          {workerType && (
-            <span
-              className={cn(
-                pill,
-                workerType === "full_time"
-                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
-                  : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
-              )}
+          {email && (
+            <a
+              href={`mailto:${email}`}
+              dir="ltr"
+              className="mt-0.5 block truncate text-xs transition-colors hover:underline"
+              style={{ color: DASH.faint }}
             >
-              {workerType === "full_time" ? "تمام‌وقت" : "پاره‌وقت"}
-            </span>
+              {email}
+            </a>
           )}
-          {roleLabel && (
-            <span className={cn(pill, ROLE_TONES[role as string])}>
-              {roleLabel}
-            </span>
-          )}
+
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {typeBadge && (
+              <span
+                className={cn(pill, "persian-body")}
+                style={{ background: typeBadge.bg, color: typeBadge.fg }}
+              >
+                {typeBadge.label}
+              </span>
+            )}
+            {roleLabel && roleTone && (
+              <span
+                className={cn(pill, "persian-body")}
+                style={{ background: roleTone.bg, color: roleTone.fg }}
+              >
+                {roleLabel}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>

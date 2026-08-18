@@ -1,6 +1,8 @@
 import { useMemo } from "react";
+import { User } from "lucide-react";
 import type { JalaliDate } from "@/utils/jalali";
 import { convertToPersianDigits } from "@/lib/utils";
+import { DASH } from "@/components/dashboard/dashboardTheme";
 import { LeaveHistoryCard } from "./LeaveHistoryCard";
 import { LeaveSummaryCard } from "./LeaveSummaryCard";
 import { OverviewStatCard } from "./OverviewStatCard";
@@ -59,6 +61,18 @@ interface WorkerOverviewProps {
  * "پنل شخصی" — the read-only overview of an employee's month:
  * identity, KPI tiles, workload ratio and leave records.
  * All values are derived from the dashboard's live API data.
+ *
+ * ─── ORDER IS A CONTRACT ───────────────────────────────────────────────────
+ * The 2026-08-18 redesign changed the LOOK of this panel only. Every block is
+ * still rendered in the order the project already had:
+ *
+ *   heading → [ identity + leave summary ]  |  [ KPI tiles → ratio → history ]
+ *
+ * and the six KPI tiles are still کارکرد ماه جاری · ساعت موظفی · تراز کارکرد ·
+ * روزهای حضور · تأخیر · غیبت. The reference HTML lists both of those the other
+ * way round; that file is written back-to-front and its order is ignored here,
+ * the same rule the management panel follows. Don't "fix" this back.
+ * ───────────────────────────────────────────────────────────────────────────
  */
 export const WorkerOverview = ({
   profile,
@@ -185,17 +199,41 @@ export const WorkerOverview = ({
   );
 
   return (
-    <div className="space-y-5">
-      <h2 className="persian-heading text-2xl font-bold text-foreground">
+    <div className="space-y-3.5">
+      {/* Heading, icon then title — the management panel's heading shape. */}
+      <h2
+        className="persian-heading flex items-center gap-2 text-lg font-extrabold"
+        style={{ color: DASH.ink }}
+      >
+        <User
+          aria-hidden="true"
+          className="h-[19px] w-[19px] shrink-0"
+          style={{ color: DASH.primary }}
+        />
         {isSelf ? "پنل شخصی" : "جزئیات کارکرد"} — {displayName}
       </h2>
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      {/*
+        Two columns, the reference's 1:1.15 split. The WIDER one is the KPI /
+        ratio / history column, which in this project is the SECOND child —
+        hence `[1fr_1.15fr]` rather than the reference's `1.15fr 1fr`. Same
+        proportions, project order preserved.
+      */}
+      {/*
+        NO `items-start` here. The columns must STRETCH to the row's height —
+        that is the whole reason `LeaveSummaryCard` carries `flex-1` and
+        `OverviewPanel` can be told to be `h-full flex flex-col`. With
+        `items-start` each column was only as tall as its own content, the
+        stretch was silently dead, and «خلاصه مرخصی‌ها» stopped short of
+        «سوابق مرخصی من» with a gap under it. Grid's default `stretch` makes the
+        two cards end on exactly the same line.
+      */}
+      <div className="grid gap-4 lg:grid-cols-[1fr_1.15fr]">
         {/* start (right in RTL): identity + leave summary.
-            A flex column (not `space-y-5`) so «خلاصه مرخصی‌ها» can take the
+            A flex column (not `space-y-*`) so «خلاصه مرخصی‌ها» can take the
             height left over by the taller column beside it instead of leaving
             a gap at the bottom of the page. */}
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-4">
           <ProfileSummaryCard profile={profile} />
           <LeaveSummaryCard
             summary={leaveSummary}
@@ -205,8 +243,8 @@ export const WorkerOverview = ({
         </div>
 
         {/* end (left in RTL): KPIs, workload ratio, leave history */}
-        <div className="space-y-5">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {tiles.map((tile) => (
               <OverviewStatCard
                 key={tile.metric}

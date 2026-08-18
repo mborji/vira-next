@@ -74,7 +74,15 @@ import {
 import { ANNUAL_LEAVE_DAYS } from "@/components/worker/overview/monthlyWorkQuota";
 // Presentation-only palette + the derived per-employee figures the redesigned
 // summary cards and the comparison charts read. Neither adds a request.
-import { DASH, TINTS, WORKER_TYPE_BADGE } from "./dashboardTheme";
+import {
+  DASH,
+  SECTION_TILE_BASE,
+  TINTS,
+  TOOLBAR_FIELD,
+  TOOLBAR_ICON_BUTTON,
+  WORKER_TYPE_BADGE,
+  sectionTileStyle,
+} from "./dashboardTheme";
 import {
   buildManagerWorkerStats,
   type ManagerWorkerStats,
@@ -100,17 +108,13 @@ const DASHBOARD_SECTIONS: {
   { id: "pending", label: "در انتظار بررسی", icon: ClipboardList },
 ];
 
-/**
- * Toolbar chip styling of the reference design, shared by the three `Select`
- * triggers so they line up with the month pill and the arrow buttons.
- * Purely visual — it overrides shadcn's defaults through `twMerge`.
+/*
+ * `TOOLBAR_FIELD`, `TOOLBAR_ICON_BUTTON`, `SECTION_TILE_BASE` and
+ * `sectionTileStyle` used to be declared here. They moved to
+ * `dashboardTheme.ts` when the employee dashboard was redesigned against the
+ * same reference, so both panels render the identical chip and the identical
+ * «منوی بخش‌ها» tile from one definition. Values unchanged.
  */
-const TOOLBAR_FIELD =
-  "h-[34px] rounded-[9px] border-[#E2E8F0] bg-white px-3.5 text-[13px] text-[#334155]";
-
-/** The two 34×34 month-arrow buttons. */
-const TOOLBAR_ICON_BUTTON =
-  "h-[34px] w-[34px] shrink-0 rounded-[9px] border-[#E2E8F0] bg-white p-0 text-[#64748B] hover:bg-[#F8FAFA] hover:text-[#0F172A]";
 
 interface Worker {
   id: string;
@@ -826,15 +830,28 @@ export const WorkerManagement: React.FC = () => {
           بازگشت به مدیریت کارمندان
         </Button>
 
-        <Card className="overflow-hidden">
+        {/*
+          The drill-down surface. It used to be a white `Card`; the redesigned
+          employee dashboard is itself a set of white cards, so the wrapper now
+          carries the page canvas instead and the cards read against it. Purely
+          visual — `WorkerDashboard` receives the very same props plus
+          `embedded`, which only tells it the host already owns the canvas and
+          the welcome banner.
+        */}
+        <div
+          className="overflow-hidden rounded-2xl border p-4 sm:p-6"
+          style={{ background: DASH.page, borderColor: DASH.cardLine }}
+        >
           <WorkerDashboard
             workerId={inspectedWorker.user_id}
             workerProfile={profile}
             title={`جزئیات کارکرد — ${
               inspectedWorker.full_name || inspectedWorker.email
             }`}
+            embedded
+            className="p-0"
           />
-        </Card>
+        </div>
       </div>
     );
   }
@@ -1021,23 +1038,10 @@ export const WorkerManagement: React.FC = () => {
                   aria-selected={isActive}
                   onClick={() => setActiveSection(id)}
                   className={cn(
-                    "flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-xl p-4 text-center transition-all",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                    SECTION_TILE_BASE,
                     isActive ? "border-0 font-bold" : "border"
                   )}
-                  style={
-                    isActive
-                      ? {
-                          background: DASH.primaryDark,
-                          color: "#FFFFFF",
-                          boxShadow: "0 6px 16px rgba(15,118,110,.28)",
-                        }
-                      : {
-                          background: DASH.card,
-                          borderColor: DASH.tileLine,
-                          color: DASH.muted,
-                        }
-                  }
+                  style={sectionTileStyle(isActive)}
                 >
                   <Icon className="h-5 w-5 shrink-0" />
                   {/*
