@@ -638,54 +638,66 @@ const AdminDashboard = ({ profile }: AdminDashboardProps) => {
           they summarise. Each one opens the section's existing tab; no new page
           or route is involved. Design, accents, icons and hints are unchanged;
           `onClick` alone turns a card into a full-card button.
+
+          HIDDEN ON «پنل شخصی من» (`activeTab === "calendar"`). These five are
+          management figures and management shortcuts; on the manager's own
+          employee panel they belong to a different screen and their targets
+          would jump the user straight back out of it. They are still rendered
+          on every management tab, unchanged — this is a visibility condition on
+          the row, nothing else. No query is skipped and no figure is
+          recalculated: `stats`, `totalUsers`, `publishedBlogsCount`,
+          `servicesCount` and `projectsCount` are fetched exactly as before, so
+          the cards are correct the instant the manager returns via «پنل مدیریت».
         */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-          <StatCard
-            title="کل درخواست‌ها"
-            value={stats.total.toLocaleString("fa-IR")}
-            icon={MessageSquare}
-            accent="teal"
-            hint="درخواست‌های تماس"
-            onClick={() => goToTab("submissions")}
-            ariaLabel="رفتن به بخش درخواست‌ها"
-          />
-          <StatCard
-            title="تعداد کاربران"
-            value={totalUsers.toLocaleString("fa-IR")}
-            icon={Users}
-            accent="orange"
-            hint="کاربران ثبت‌شده"
-            onClick={() => goToTab("users")}
-            ariaLabel="رفتن به بخش کاربران"
-          />
-          <StatCard
-            title="مقالات منتشر شده"
-            value={publishedBlogsCount.toLocaleString("fa-IR")}
-            icon={FileText}
-            accent="sky"
-            hint="محتوای فعال بلاگ"
-            onClick={() => goToTab("blogs")}
-            ariaLabel="رفتن به بخش مقالات"
-          />
-          <StatCard
-            title="خدمات ارائه شده"
-            value={servicesCount.toLocaleString("fa-IR")}
-            icon={Briefcase}
-            accent="rose"
-            hint="سرویس‌های تعریف‌شده"
-            onClick={() => goToTab("services")}
-            ariaLabel="رفتن به بخش خدمات"
-          />
-          <StatCard
-            title="پروژه‌ها"
-            value={projectsCount.toLocaleString("fa-IR")}
-            icon={ClipboardCheck}
-            accent="indigo"
-            hint="پروژه‌های نمونه‌کار"
-            onClick={() => goToTab("projects")}
-            ariaLabel="رفتن به بخش پروژه‌ها"
-          />
-        </div>
+        {activeTab !== "calendar" && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <StatCard
+              title="کل درخواست‌ها"
+              value={stats.total.toLocaleString("fa-IR")}
+              icon={MessageSquare}
+              accent="teal"
+              hint="درخواست‌های تماس"
+              onClick={() => goToTab("submissions")}
+              ariaLabel="رفتن به بخش درخواست‌ها"
+            />
+            <StatCard
+              title="تعداد کاربران"
+              value={totalUsers.toLocaleString("fa-IR")}
+              icon={Users}
+              accent="orange"
+              hint="کاربران ثبت‌شده"
+              onClick={() => goToTab("users")}
+              ariaLabel="رفتن به بخش کاربران"
+            />
+            <StatCard
+              title="مقالات منتشر شده"
+              value={publishedBlogsCount.toLocaleString("fa-IR")}
+              icon={FileText}
+              accent="sky"
+              hint="محتوای فعال بلاگ"
+              onClick={() => goToTab("blogs")}
+              ariaLabel="رفتن به بخش مقالات"
+            />
+            <StatCard
+              title="خدمات ارائه شده"
+              value={servicesCount.toLocaleString("fa-IR")}
+              icon={Briefcase}
+              accent="rose"
+              hint="سرویس‌های تعریف‌شده"
+              onClick={() => goToTab("services")}
+              ariaLabel="رفتن به بخش خدمات"
+            />
+            <StatCard
+              title="پروژه‌ها"
+              value={projectsCount.toLocaleString("fa-IR")}
+              icon={ClipboardCheck}
+              accent="indigo"
+              hint="پروژه‌های نمونه‌کار"
+              onClick={() => goToTab("projects")}
+              ariaLabel="رفتن به بخش پروژه‌ها"
+            />
+          </div>
+        )}
 
         {/* Main Content */}
         <Tabs
