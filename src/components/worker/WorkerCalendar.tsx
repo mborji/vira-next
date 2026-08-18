@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +9,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Calendar, Clock, Coffee, Save, Trash2, Plus } from "lucide-react";
+import {
+  Calendar,
+  Check,
+  Clock,
+  Coffee,
+  Pencil,
+  Save,
+  Trash2,
+  Plus,
+} from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { apiClient } from "@/lib/api";
 import { useAuthStore } from "@/hooks/useAuthStore";
@@ -27,17 +34,61 @@ import {
   formatDecimalHoursToTime,
 } from "@/lib/utils";
 import { NON_WORKING_WEEKDAYS } from "@/components/worker/overview/workerStats";
+// Presentation-only palette shared with the manager panel and the employee
+// dashboard. Colour strings, nothing else — see `dashboardTheme.ts`.
+import { DASH } from "@/components/dashboard/dashboardTheme";
 import { useWindowSize } from "../windowWidth/useWindowSize";
 import { RotateCcw } from "lucide-react";
 
 const MOBILE_WIDTH_THRESHOLD = 600;
 
 /**
- * The single coloured element of a non-working day: the pill itself.
- * The day card stays white so the calendar keeps its clean look.
+ * The reference design's calendar palette, hex for hex.
+ *
+ * Only the values the reference uses and `DASH` does not already carry live
+ * here; everything else comes from `DASH`. Applied as inline `style`, so the
+ * Tailwind JIT can never purge it and — like the rest of this redesign — the
+ * calendar is a fixed light theme with no dark-mode variants.
  */
-const NON_WORKING_BADGE_CLASS =
-  "mt-1 border-rose-200 bg-rose-50 text-[10px] font-medium text-rose-600 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300";
+/*
+ * CONTRAST PASS (2026-08-18, follow-up): the reference's own hairlines read too
+ * faint once the calendar sits on the page's grey canvas, so the LINES and the
+ * day-tile ICONS were stepped up by one shade each — nothing else. Fills, text
+ * colours, tile size, spacing, type and layout are untouched, and no border was
+ * added anywhere it did not already exist. The reference's original values are
+ * kept beside each one so the step is visible and reversible.
+ */
+const CAL = {
+  /** Day-tile border. Reference `#D3DBDA` — one step darker for definition. */
+  tileLine: "#C3CECC",
+  /**
+   * The two hairlines under the header and above the legend.
+   * Reference `#E4EAE9`.
+   */
+  divider: "#D7DFDE",
+  /** Today's tile fill, and the header icon chip. */
+  tealTint: "#F0FDFA",
+  /** Worked-hours pill. */
+  hoursBg: "#F1F5F4",
+  hoursFg: "#475569",
+  /**
+   * Every non-working marker: weekly day off, official holiday, rejected leave.
+   * `offLine` was the reference's `#FBDDE2`; the fill and the text are unchanged.
+   */
+  offBg: "#FFF1F3",
+  offLine: "#F5CBD4",
+  offFg: "#BE123C",
+  /** «در انتظار» leave. `pendingLine` was `#FBEDCB`. */
+  pendingBg: "#FFFBEB",
+  pendingLine: "#F3DFB4",
+  pendingFg: "#B45309",
+  /**
+   * The day-tile action icons at rest. Reference `#CBD5E1`, which disappeared
+   * against the white tile; `DASH.faint` is legible without pulling attention
+   * away from the day number. Hover / disabled behaviour is unchanged.
+   */
+  action: "#94A3B8",
+} as const;
 
 /** Persian week header — index 5 is پنجشنبه and index 6 is جمعه. */
 const WEEK_DAY_LABELS = [
@@ -595,6 +646,20 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
     return { timeLog, dayOffRequest, holiday };
   };
 
+  /**
+   * One day tile.
+   *
+   * REDESIGN NOTE — look only. The data this reads (`getDayInfo`), the edit
+   * permission (`canEditDate`), the weekend rule (`NON_WORKING_WEEKDAYS`) and
+   * the three dialog openers are exactly what they were; only the markup and
+   * the colours changed, to the reference design's 118px rounded tile.
+   *
+   * ORDER IS PRESERVED: the day number comes first (so it sits on the RIGHT
+   * under the app's global `dir="rtl"`) and the action icons second, and the
+   * markers stack ساعت کارکرد → وضعیت مرخصی → تعطیلی. The reference file lists
+   * both the other way round — it is written back-to-front throughout, exactly
+   * like the two dashboard references before it, and its order is ignored here.
+   */
   const renderCalendarDay = (day: number) => {
     const { timeLog, dayOffRequest, holiday } = getDayInfo(day);
     const gregorianDate = jalaliToGregorian(
@@ -607,28 +672,42 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
     // Thursday and Friday are the weekly days off in every month, not only in
     // the current one — official holidays are non-working days as well.
     const isWeekend = NON_WORKING_WEEKDAYS.includes(dayOfWeek);
-    // Official holidays and the weekly days off share the same red numeral;
-    // the day card itself stays white.
+    // Official holidays and the weekly days off share the same red numeral.
     const isNonWorkingDay = isWeekend || Boolean(holiday);
 
     const dateStr = formatDateForDB(selectedMonth.jy, selectedMonth.jm, day);
     const isToday = dateStr === today;
     const canEdit = canEditDate(selectedMonth.jy, selectedMonth.jm, day);
 
+    /** Reference rule: a non-working numeral is red even when it is today. */
+    const numberColor = isNonWorkingDay
+      ? CAL.offFg
+      : isToday
+      ? DASH.primaryDark
+      : DASH.body;
+
+    const actionButton =
+      "h-7 w-7 shrink-0 rounded-lg p-0 hover:bg-[#F1F5F4] hover:text-[#0F766E] disabled:opacity-40";
+
     return (
       <div
         key={day}
-        className={cn(
-          "min-h-24 border border-border bg-background p-2",
-          isToday && "border-primary bg-primary/10 ring-1 ring-primary"
-        )}
+        className="flex min-h-[96px] flex-col rounded-[14px] border p-2.5 transition-shadow sm:min-h-[118px] sm:px-[11px]"
+        style={
+          isToday
+            ? {
+                background: CAL.tealTint,
+                borderColor: DASH.primary,
+                borderWidth: 1.5,
+                boxShadow: "0 0 0 3px rgba(13,148,136,.10)",
+              }
+            : { background: DASH.card, borderColor: CAL.tileLine }
+        }
       >
-        <div className="flex justify-between items-start mb-2">
+        <div className="flex items-start justify-between gap-1">
           <span
-            className={cn(
-              "text-sm font-medium",
-              isNonWorkingDay && "font-semibold text-rose-600 dark:text-rose-400"
-            )}
+            className="persian-heading text-[15px] font-bold leading-none"
+            style={{ color: numberColor }}
             title={
               holiday
                 ? holiday.title?.trim() || "تعطیل رسمی"
@@ -639,90 +718,123 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
           >
             {day.toLocaleString("fa-IR")}
           </span>
-          <div className={cn("flex gap-1", readOnly && "hidden")}>
+          <div
+            className={cn("flex items-center gap-0.5", readOnly && "hidden")}
+            style={{ color: CAL.action }}
+          >
             <Button
               size="sm"
               variant="ghost"
-              className="h-6 w-6 p-0"
+              className={actionButton}
+              aria-label="ثبت ساعات کاری"
+              title="ثبت ساعات کاری"
               onClick={() =>
                 openLogDialog(selectedMonth.jy, selectedMonth.jm, day)
               }
               disabled={!canEdit}
             >
-              <Clock
-                className={`h-3 w-3 ${!canEdit ? "text-muted-foreground" : ""}`}
-              />
+              <Clock className="h-[15px] w-[15px]" />
             </Button>
             <Button
               size="sm"
               variant="ghost"
-              className="h-6 w-6 p-0"
+              className={actionButton}
+              aria-label="درخواست مرخصی"
+              title="درخواست مرخصی"
               onClick={() =>
                 openDayOffDialog(selectedMonth.jy, selectedMonth.jm, day)
               }
               disabled={!canEdit}
             >
-              <Coffee
-                className={`h-3 w-3 ${!canEdit ? "text-muted-foreground" : ""}`}
-              />
+              <Coffee className="h-[15px] w-[15px]" />
             </Button>
             {isAdmin && (
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 w-6 p-0"
+                className={actionButton}
+                aria-label="ثبت تعطیلی رسمی"
+                title="ثبت تعطیلی رسمی"
                 onClick={() =>
                   openHolidayDialog(selectedMonth.jy, selectedMonth.jm, day)
                 }
               >
-                <Plus className="h-3 w-3" />
+                <Plus className="h-[15px] w-[15px]" />
               </Button>
             )}
           </div>
         </div>
 
-        {timeLog && (
-          <Badge variant="secondary" className="text-xs mb-1">
-            {timeLog.hours_worked
-              ? convertToPersianDigits(timeLog.hours_worked.substring(0, 5))
-              : "۰۰:۰۰"}
-          </Badge>
-        )}
+        {/* Markers, pushed to the bottom of the tile by `mt-auto`. */}
+        <div className="mt-auto flex flex-col items-center gap-1.5 pt-2">
+          {timeLog && (
+            <span
+              dir="ltr"
+              className="persian-heading rounded-lg px-3 py-1 text-xs font-semibold [font-variant-numeric:tabular-nums]"
+              style={{ background: CAL.hoursBg, color: CAL.hoursFg }}
+            >
+              {timeLog.hours_worked
+                ? convertToPersianDigits(timeLog.hours_worked.substring(0, 5))
+                : "۰۰:۰۰"}
+            </span>
+          )}
 
-        {dayOffRequest && (
-          <Badge
-            variant={
-              dayOffRequest.status === "approved"
-                ? "default"
-                : dayOffRequest.status === "rejected"
-                ? "destructive"
-                : "outline"
-            }
-            className="text-xs"
-          >
-            {dayOffRequest.status === "pending"
-              ? "در انتظار"
-              : dayOffRequest.status === "approved"
-              ? "تایید شده"
-              : "رد شده"}
-          </Badge>
-        )}
+          {dayOffRequest &&
+            (dayOffRequest.status === "approved" ? (
+              <span
+                className="persian-body inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold text-white"
+                style={{
+                  background: DASH.primaryDark,
+                  boxShadow: "0 4px 10px rgba(15,118,110,.28)",
+                }}
+              >
+                <Check className="h-[13px] w-[13px]" strokeWidth={2.4} />
+                تایید شده
+              </span>
+            ) : (
+              <span
+                className="persian-body rounded-full border px-3.5 py-1 text-[11px] font-semibold"
+                style={
+                  dayOffRequest.status === "pending"
+                    ? {
+                        background: CAL.pendingBg,
+                        borderColor: CAL.pendingLine,
+                        color: CAL.pendingFg,
+                      }
+                    : {
+                        background: CAL.offBg,
+                        borderColor: CAL.offLine,
+                        color: CAL.offFg,
+                      }
+                }
+              >
+                {dayOffRequest.status === "pending" ? "در انتظار" : "رد شده"}
+              </span>
+            ))}
 
-        {holiday ? (
-          <Badge
-            variant="outline"
-            className={cn(NON_WORKING_BADGE_CLASS, "whitespace-normal")}
-            title={holiday.title?.trim() || "تعطیل رسمی"}
-          >
-            {holiday.title?.trim() || "تعطیل رسمی"}
-          </Badge>
-        ) : (
-          isWeekend && (
-            <Badge variant="outline" className={NON_WORKING_BADGE_CLASS}>
-              تعطیل هفتگی
-            </Badge>
-          )
-        )}
+          {holiday ? (
+            <span
+              className="persian-body w-full rounded-[9px] px-2.5 py-1.5 text-center text-[11px] font-semibold leading-[1.6]"
+              style={{ background: CAL.offBg, color: CAL.offFg }}
+              title={holiday.title?.trim() || "تعطیل رسمی"}
+            >
+              {holiday.title?.trim() || "تعطیل رسمی"}
+            </span>
+          ) : (
+            isWeekend && (
+              <span
+                className="persian-body rounded-full border px-3.5 py-1 text-[11px] font-semibold"
+                style={{
+                  background: CAL.offBg,
+                  borderColor: CAL.offLine,
+                  color: CAL.offFg,
+                }}
+              >
+                تعطیل هفتگی
+              </span>
+            )
+          )}
+        </div>
       </div>
     );
   };
@@ -730,35 +842,30 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
   if (isTooNarrow) {
     return (
       <div className="space-y-6">
-        <Card className="flex items-center justify-center p-4">
-          {/* The inner div must control the height. We use min-h-[400px] 
-          or min-h-full to ensure it's tall enough to center the message, 
-          without using h-screen which would overflow the Card.
-        */}
-          <div
-            className="
-            flex flex-col items-center justify-center 
-            w-full 
-            min-h-[400px] /* Ensure sufficient height for the message */ 
-            text-center 
-            bg-background/50 /* Optional: slightly different background for contrast */
-            p-4 
-            rounded-lg
-          "
-          >
-            <RotateCcw className="w-12 h-12 text-blue-500 mb-4" />
-            <h2 className="text-xl font-bold mb-2 persian-body">
+        <div
+          className="rounded-[20px] border bg-white p-4"
+          style={{
+            borderColor: DASH.cardLine,
+            boxShadow: "0 1px 2px rgba(15,23,42,.03)",
+          }}
+        >
+          <div className="flex min-h-[400px] w-full flex-col items-center justify-center rounded-2xl p-4 text-center">
+            <RotateCcw
+              className="mb-4 h-12 w-12"
+              style={{ color: DASH.primary }}
+            />
+            <h2
+              className="persian-heading mb-2 text-xl font-extrabold"
+              style={{ color: DASH.ink }}
+            >
               لطفاً دستگاه خود را بچرخانید
             </h2>
-            <p className="text-gray-600 persian-body">
+            <p className="persian-body text-sm" style={{ color: DASH.subtle }}>
               برای نمایش صحیح تقویم و جدول زمانی، لطفاً گوشی خود را به حالت افقی
               بچرخانید.
             </p>
-
-            {/* Optional: Show current width for debugging */}
-            {/* <p className="mt-4 text-xs text-gray-400">عرض فعلی: {width}px</p> */}
           </div>
-        </Card>
+        </div>
       </div>
     );
   }
@@ -775,85 +882,162 @@ export const WorkerCalendar: React.FC<WorkerCalendarProps> = ({
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
-            {getJalaliMonthName(selectedMonth.jm)}{" "}
-            {selectedMonth.jy.toLocaleString("fa-IR", { useGrouping: false })}
-          </CardTitle>
-          <div className="flex gap-4 text-sm text-muted-foreground">
-            <span>
-              مجموع ساعات کاری:{" "}
-              {convertToPersianDigits(formatDecimalHoursToTime(totalHours))}{" "}
-              ساعت
+      {/*
+        The calendar card of the reference design: white on the `#EAEEED`
+        hairline, 20px radius, a hairline-separated header, the 7-column grid
+        and a legend footer. Colours are inline hex (see `CAL` / `DASH`) for the
+        same reason the rest of this redesign is — a fixed light theme that
+        cannot be purged by the JIT.
+      */}
+      <div
+        className="rounded-[20px] border bg-white px-4 pb-[26px] pt-[22px] sm:px-6"
+        style={{
+          borderColor: DASH.cardLine,
+          boxShadow: "0 1px 2px rgba(15,23,42,.03)",
+        }}
+      >
+        {/* Header: title block first (right in RTL), status pill second. */}
+        <div
+          className="flex flex-wrap items-start justify-between gap-4 border-b pb-[18px]"
+          style={{ borderColor: CAL.divider }}
+        >
+          <div className="flex items-center gap-3">
+            <span
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+              style={{ background: CAL.tealTint, color: DASH.primary }}
+            >
+              <Calendar className="h-[21px] w-[21px]" />
             </span>
+            <div>
+              <h2
+                className="persian-heading m-0 text-xl font-extrabold"
+                style={{ color: DASH.ink }}
+              >
+                {getJalaliMonthName(selectedMonth.jm)}{" "}
+                {selectedMonth.jy.toLocaleString("fa-IR", {
+                  useGrouping: false,
+                })}
+              </h2>
+              <p
+                className="persian-body m-0 mt-[3px] text-xs"
+                style={{ color: DASH.subtle }}
+              >
+                مجموع ساعات کاری:{" "}
+                <b
+                  dir="ltr"
+                  className="inline-block font-bold [font-variant-numeric:tabular-nums]"
+                  style={{ color: DASH.primaryDark }}
+                >
+                  {convertToPersianDigits(formatDecimalHoursToTime(totalHours))}
+                </b>{" "}
+                ساعت
+              </p>
+            </div>
+          </div>
+
+          {/*
+            The same two notices as before, under the same conditions — only
+            their styling changed, to the reference's pill.
+          */}
+          <div className="flex flex-wrap items-center gap-2.5">
             {readOnly ? (
-              <span className="text-muted-foreground">
+              <span
+                className="persian-body inline-flex max-w-full items-center gap-1.5 rounded-full border px-[13px] py-[7px] text-xs font-semibold"
+                style={{
+                  background: CAL.hoursBg,
+                  borderColor: DASH.line,
+                  color: CAL.hoursFg,
+                }}
+              >
                 نمای فقط‌خواندنی — ثبت و ویرایش از بخش «ساعات کاری» پنل مدیریت
                 انجام می‌شود
               </span>
             ) : (
               !isAdmin &&
               selectedMonth.jm == currentDate.jm && (
-                <span className="text-amber-600">ویرایش فقط برای ماه جاری</span>
+                <span
+                  className="persian-body inline-flex items-center gap-1.5 rounded-full border px-[13px] py-[7px] text-xs font-semibold"
+                  style={{
+                    background: "#FFF7ED",
+                    borderColor: "#FBE7CB",
+                    color: CAL.pendingFg,
+                  }}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  ویرایش فقط برای ماه جاری
+                </span>
               )
             )}
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-7 gap-1 mb-2">
-            {WEEK_DAY_LABELS.map((day) => (
-              <div
-                key={day.short}
-                title={day.full}
-                className={cn(
-                  "py-2 text-center text-sm font-medium",
-                  day.off && "font-semibold text-rose-600 dark:text-rose-400"
-                )}
-              >
-                {day.short}
-              </div>
-            ))}
-          </div>
+        </div>
 
+        {/* Weekday header — شنبه first, the project's own order. */}
+        <div className="mt-4 grid grid-cols-7 gap-1.5 sm:gap-2">
+          {WEEK_DAY_LABELS.map((day) => (
+            <div
+              key={day.short}
+              title={day.full}
+              className="persian-body pb-1 text-center text-[13px] font-bold"
+              /*
+                The reference paints every weekday label the same grey. The two
+                non-working columns keep a red label here on purpose — that is
+                information the calendar already carried, and the brief was to
+                restyle what is shown, not to drop it. The red is the
+                reference's own `#BE123C`.
+              */
+              style={{ color: day.off ? CAL.offFg : DASH.subtle }}
+            >
+              {day.short}
+            </div>
+          ))}
+        </div>
 
-          <div className="grid grid-cols-7 gap-1">
-            {Array.from({ length: startIndex }).map((_, i) => (
-              <div
-                key={`empty-${i}`}
-                className="min-h-24 border border-border p-2 bg-background"
-              />
-            ))}
-            {days.map((day) => renderCalendarDay(day))}
-          </div>
+        <div className="mt-0.5 grid grid-cols-7 gap-1.5 sm:gap-2">
+          {/* Leading blanks are transparent in the reference — no tile, no border. */}
+          {Array.from({ length: startIndex }).map((_, i) => (
+            <div
+              key={`empty-${i}`}
+              aria-hidden="true"
+              className="min-h-[96px] sm:min-h-[118px]"
+            />
+          ))}
+          {days.map((day) => renderCalendarDay(day))}
+        </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-3 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1.5">
-              <Badge
-                variant="outline"
-                className={cn(NON_WORKING_BADGE_CLASS, "mt-0")}
-              >
-                تعطیل هفتگی
-              </Badge>
-              پنجشنبه و جمعه
-            </span>
-            <span className="flex items-center gap-1.5">
-              <Badge
-                variant="outline"
-                className={cn(NON_WORKING_BADGE_CLASS, "mt-0")}
-              >
-                عنوان تعطیلی
-              </Badge>
-              تعطیل رسمی
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="h-3 w-3 rounded border border-primary bg-primary/10" />
-              امروز
-            </span>
-          </div>
-        </CardContent>
-      </Card>
+        {/* Legend — the same three entries as before, as reference swatches. */}
+        <div
+          className="mt-[18px] flex flex-wrap items-center gap-x-5 gap-y-2 border-t pt-4 text-xs"
+          style={{ borderColor: CAL.divider, color: DASH.subtle }}
+        >
+          <span className="persian-body inline-flex items-center gap-[7px]">
+            <i
+              aria-hidden="true"
+              className="inline-block h-3 w-3 rounded border"
+              style={{ background: CAL.offBg, borderColor: CAL.offLine }}
+            />
+            تعطیل هفتگی — پنجشنبه و جمعه
+          </span>
+          <span className="persian-body inline-flex items-center gap-[7px]">
+            <i
+              aria-hidden="true"
+              className="inline-block h-3 w-3 rounded"
+              style={{ background: CAL.offBg, border: `1px solid ${CAL.offFg}` }}
+            />
+            تعطیل رسمی — عنوان تعطیلی
+          </span>
+          <span className="persian-body inline-flex items-center gap-[7px]">
+            <i
+              aria-hidden="true"
+              className="inline-block h-3 w-3 rounded"
+              style={{
+                background: CAL.tealTint,
+                border: `1.5px solid ${DASH.primary}`,
+              }}
+            />
+            امروز
+          </span>
+        </div>
+      </div>
 
       <Dialog open={isLogDialogOpen} onOpenChange={setIsLogDialogOpen}>
         <DialogContent className="overflow-y-scroll max-h-[calc(100vh-2rem)] sm:max-h-screen">
